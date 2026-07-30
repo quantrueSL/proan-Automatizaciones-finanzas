@@ -146,6 +146,18 @@ AZUL = "#2A2B5F"
 BORDE = "#d9dee5"
 AVISO = "#a12626"
 
+# El PDF adjunto se genera con el MISMO HTML del correo mas una hoja de estilos de
+# impresion. Es lo que evita que el correo y el adjunto se separen con el tiempo: hay una
+# sola definicion del layout, no dos.
+#
+# Horizontal, al contrario que anticipos: son siete columnas y una de ellas es texto libre.
+# En vertical el texto de los apuntes saldria partido en tres lineas.
+PDF_ORIENTACION = "landscape"
+AVISO_SIN_PDF = (
+    "No se pudo generar el PDF adjunto de este reporte. El detalle completo esta en "
+    "este correo."
+)
+
 
 # --------------------------------------------------------------------------- #
 # Configuracion
@@ -564,8 +576,9 @@ def _tabla_cuenta(partidas: list[dict[str, Any]]) -> str:
 
 def _bloque_sociedad(sociedad: str, cuentas: dict[str, list[dict[str, Any]]]) -> str:
     partes = [
-        f'<p style="font-family:Barlow,\'Segoe UI\',Arial,sans-serif;font-size:16px;'
-        f'color:{AZUL};font-weight:800;margin:28px 0 2px;">Sociedad {escape(sociedad)}</p>'
+        f'<p class="titulo-sociedad" style="font-family:Barlow,\'Segoe UI\',Arial,sans-serif;'
+        f'font-size:16px;color:{AZUL};font-weight:800;margin:28px 0 2px;">'
+        f"Sociedad {escape(sociedad)}</p>"
     ]
 
     if not cuentas:
@@ -586,8 +599,8 @@ def _bloque_sociedad(sociedad: str, cuentas: dict[str, list[dict[str, Any]]]) ->
 
     for cuenta in sorted(cuentas):
         partes.append(
-            f'<p style="font-size:13px;color:{AZUL};font-weight:700;margin:16px 0 8px;">'
-            f"Cuenta {escape(cuenta or SIN_CUENTA)}</p>"
+            f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
+            f'margin:16px 0 8px;">Cuenta {escape(cuenta or SIN_CUENTA)}</p>'
         )
         partes.append(_tabla_cuenta(cuentas[cuenta]))
 
@@ -640,14 +653,72 @@ def _resumen_sociedades(agrupado: dict[str, dict[str, list[dict[str, Any]]]]) ->
     )
 
 
-def construir_html(titulo: str, subtitulo: str, contenido: str) -> str:
+def _estilos_pdf() -> str:
+    """
+    Hoja de estilos que solo se aplica al PDF.
+
+    El correo esta pensado para clientes de correo: tarjeta con sombra y ancho fijo. En
+    papel eso estorba y roba ancho, asi que aqui se desmonta el marco y se anaden las
+    cosas que un PDF necesita y un correo no: margenes de pagina, numeracion, y sobre
+    todo repetir la fila de encabezado en cada hoja, que en un listado de cien filas es
+    la diferencia entre poder leerlo y no.
+    """
+    return f"""<style>
+    @page {{
+      size: A4 {PDF_ORIENTACION};
+      margin: 12mm 10mm 14mm;
+      @bottom-right {{
+        content: "Pagina " counter(page) " de " counter(pages);
+        font-family: "Liberation Sans", Arial, sans-serif;
+        font-size: 8pt;
+        color: #6b7280;
+      }}
+    }}
+    /* Barlow y Segoe UI no existen en el contenedor. Liberation Sans es compatible en
+       metricas con Arial, el ultimo recurso de la pila del correo, asi que el PDF sale
+       con las mismas proporciones que se ven en el navegador. */
+    body, td, th, div, p {{ font-family: "Liberation Sans", Arial, sans-serif !important; }}
+    .lienzo {{ padding: 0 !important; }}
+    .tarjeta {{
+      width: 100% !important; max-width: none !important;
+      border: 0 !important; border-radius: 0 !important;
+    }}
+    /* Sin esto, a partir de la segunda hoja las columnas quedan sin nombre. */
+    thead {{ display: table-header-group; }}
+    tr {{ break-inside: avoid; }}
+    /* Que un titulo no se quede solo al final de una pagina, con su tabla en la siguiente. */
+    .titulo-sociedad, .titulo-seccion {{ break-after: avoid; }}
+    </style>"""
+
+
+def construir_html(
+    titulo: str,
+    subtitulo: str,
+    contenido: str,
+    *,
+    para_pdf: bool = False,
+    aviso: str | None = None,
+) -> str:
+    estilos = _estilos_pdf() if para_pdf else ""
+    # WeasyPrint no soporta box-shadow y avisa cada vez que la encuentra. En el PDF la
+    # sombra se quita de todas formas, asi que no se emite: mejor no generar el aviso que
+    # tener que silenciarlo y perder de vista los avisos que si importan.
+    sombra = "" if para_pdf else "box-shadow:0 8px 24px rgba(15,23,42,.08);"
+    bloque_aviso = (
+        f'<tr><td style="padding:0 28px;">'
+        f'<p style="margin:12px 0 0;padding:10px 12px;border-left:3px solid {AVISO};'
+        f'background:rgba(161,38,38,.06);font-size:12px;color:#7a1d1d;">'
+        f"{escape(aviso)}</p></td></tr>"
+        if aviso
+        else ""
+    )
     return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"></head>
+<html lang="es"><head><meta charset="UTF-8">{estilos}</head>
 <body style="margin:0;padding:0;background:#ffffff;font-family:'Segoe UI',Arial,sans-serif;color:#111827;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:32px 16px;">
+  <table class="lienzo" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:32px 16px;">
     <tr><td align="center">
-      <table width="900" cellpadding="0" cellspacing="0"
-             style="background:#ffffff;border-radius:12px;box-shadow:0 8px 24px rgba(15,23,42,.08);
+      <table class="tarjeta" width="900" cellpadding="0" cellspacing="0"
+             style="background:#ffffff;border-radius:12px;{sombra}
                     border:1px solid {BORDE};overflow:hidden;max-width:900px;width:100%;">
         <tr style="border-bottom:1px solid {BORDE};">
           <td style="padding:24px 28px;">
@@ -657,6 +728,7 @@ def construir_html(titulo: str, subtitulo: str, contenido: str) -> str:
             <p style="font-size:13px;color:#4b5563;margin:6px 0 0;">{escape(subtitulo)}</p>
           </td>
         </tr>
+        {bloque_aviso}
         <tr><td style="padding:8px 28px 28px;">{contenido}</td></tr>
         <tr><td style="padding:0 28px 24px;">
           <p style="font-size:11px;color:#6b7280;margin:0;line-height:1.6;">
@@ -673,6 +745,45 @@ def construir_html(titulo: str, subtitulo: str, contenido: str) -> str:
 </body></html>"""
 
 
+def generar_pdf(html: str) -> bytes | None:
+    """
+    Convierte a PDF el mismo HTML del correo, con WeasyPrint.
+
+    Si falla devuelve None y el correo sale sin adjunto: el reporte vale mas que el
+    adjunto, y un problema de tipografias o de librerias del sistema no deberia dejar a
+    finanzas sin su dato del dia. Se registra el motivo en el log para poder arreglarlo.
+    """
+    try:
+        # WeasyPrint registra en INFO cada paso y CADA PAGINA del documento. Con un
+        # consolidado de varias decenas de paginas por diecisiete correos, eso son cientos
+        # de lineas que ahogan los mensajes del proceso, que son los que sirven para
+        # diagnosticar.
+        #
+        # El nivel se sube ANTES del import, no despues: al importarse, WeasyPrint parsea
+        # sus hojas de estilo por defecto y ya escribe en el log. Con el setLevel debajo
+        # del import esas primeras lineas se colaban igual.
+        logging.getLogger("weasyprint").setLevel(logging.WARNING)
+        logging.getLogger("fontTools").setLevel(logging.WARNING)
+
+        from weasyprint import HTML
+
+        return HTML(string=html).write_pdf()
+    except Exception as exc:
+        logging.warning("No se pudo generar el PDF: %s", exc)
+        return None
+
+
+def _guardar_pdf_local(nombre: str, pdf: bytes) -> None:
+    directorio = Path(os.environ.get("PARTIDAS_DRY_RUN_DIR", "salida_dry_run"))
+    try:
+        directorio.mkdir(parents=True, exist_ok=True)
+        destino = directorio / f"{nombre}.pdf"
+        destino.write_bytes(pdf)
+        logging.info("PDF de prueba en %s (%s KB)", destino, round(len(pdf) / 1024, 1))
+    except OSError as exc:
+        logging.warning("No se pudo escribir el PDF local de %s: %s", nombre, exc)
+
+
 def _guardar_copia_local(nombre: str, html: str) -> None:
     directorio = Path(os.environ.get("PARTIDAS_DRY_RUN_DIR", "salida_dry_run"))
     try:
@@ -687,16 +798,24 @@ def _guardar_copia_local(nombre: str, html: str) -> None:
 
 
 def enviar_correo(
-    asunto: str, html: str, destinatarios: list[str], nombre_copia: str
+    asunto: str,
+    html: str,
+    destinatarios: list[str],
+    nombre_copia: str,
+    pdf: bytes | None = None,
+    nombre_pdf: str = "",
 ) -> dict[str, Any]:
     remitente = os.environ.get("SENDGRID_FROM_EMAIL", "noreply@proan.com").strip()
 
     if _es_verdadero(os.environ.get("PARTIDAS_EMAIL_DRY_RUN", "false")):
         _guardar_copia_local(nombre_copia, html)
+        if pdf:
+            _guardar_pdf_local(nombre_copia, pdf)
         return {
             "asunto": asunto,
             "cc": destinatarios,
             "estado": "dry_run",
+            "adjunto": nombre_pdf if pdf else None,
             "mensaje": "Envio simulado por PARTIDAS_EMAIL_DRY_RUN=true.",
         }
 
@@ -707,8 +826,12 @@ def enviar_correo(
             "deploy.sh: ejecutar el Cloud Run Job a mano usa la configuracion ya desplegada."
         )
 
+    import base64
+
     import sendgrid
-    from sendgrid.helpers.mail import Cc, Mail
+    from sendgrid.helpers.mail import (
+        Attachment, Cc, Disposition, FileContent, FileName, FileType, Mail,
+    )
 
     mensaje = Mail(
         from_email=remitente,
@@ -719,11 +842,20 @@ def enviar_correo(
     for destinatario in destinatarios:
         mensaje.add_cc(Cc(destinatario))
 
+    if pdf:
+        mensaje.attachment = Attachment(
+            FileContent(base64.b64encode(pdf).decode()),
+            FileName(nombre_pdf),
+            FileType("application/pdf"),
+            Disposition("attachment"),
+        )
+
     respuesta = sendgrid.SendGridAPIClient(api_key).send(mensaje)
     return {
         "asunto": asunto,
         "cc": destinatarios,
         "estado": "enviado",
+        "adjunto": nombre_pdf if pdf else None,
         "codigo": respuesta.status_code,
     }
 
@@ -735,23 +867,40 @@ def enviar_reportes(
     por_sociedad: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
     fecha_texto = fecha_reporte.strftime("%d/%m/%Y")
+    sufijo_fichero = fecha_reporte.strftime("%Y%m%d")
+    titulo = "Partidas pendientes de compensar"
     resultados = []
+
+    def preparar(titulo_sub: str, contenido: str, nombre: str) -> tuple[str, bytes | None, str]:
+        """
+        Devuelve el HTML del correo, el PDF y su nombre de fichero.
+
+        El PDF se genera ANTES de construir el HTML del correo, no despues, porque si
+        falla hay que poder avisarlo dentro del propio correo.
+        """
+        pdf = generar_pdf(construir_html(titulo, titulo_sub, contenido, para_pdf=True))
+        html = construir_html(
+            titulo, titulo_sub, contenido, aviso=None if pdf else AVISO_SIN_PDF
+        )
+        return html, pdf, f"{nombre}_{sufijo_fichero}.pdf"
 
     if globales:
         bloques = "".join(
             _bloque_sociedad(sociedad, cuentas) for sociedad, cuentas in agrupado.items()
         )
-        html = construir_html(
-            "Partidas pendientes de compensar",
+        html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
             _resumen_sociedades(agrupado) + bloques,
+            "partidas_pendientes_todas_las_sociedades",
         )
         resultados.append(
             enviar_correo(
-                f"Partidas pendientes de compensar - todas las sociedades - {fecha_texto}",
+                f"{titulo} - todas las sociedades - {fecha_texto}",
                 html,
                 globales,
                 "partidas_global",
+                pdf=pdf,
+                nombre_pdf=nombre_pdf,
             )
         )
     else:
@@ -765,10 +914,10 @@ def enviar_reportes(
             )
             continue
 
-        html = construir_html(
-            "Partidas pendientes de compensar",
+        html, pdf, nombre_pdf = preparar(
             f"Sociedad {sociedad}. Fecha de consulta {fecha_texto}.",
             _bloque_sociedad(sociedad, cuentas),
+            f"partidas_pendientes_{sociedad}",
         )
         resultados.append(
             enviar_correo(
@@ -776,6 +925,8 @@ def enviar_reportes(
                 html,
                 destinatarios,
                 f"partidas_{sociedad.lower()}",
+                pdf=pdf,
+                nombre_pdf=nombre_pdf,
             )
         )
 

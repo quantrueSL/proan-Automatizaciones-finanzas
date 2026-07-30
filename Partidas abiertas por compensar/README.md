@@ -209,6 +209,35 @@ Se envian dos tipos de correo:
 - **Uno consolidado** con las 16, que empieza con un resumen —partidas, cuentas, dias de la
   mas antigua e importe neto por sociedad— y sigue con el detalle.
 
+### El PDF adjunto
+
+Cada correo lleva adjunto el mismo contenido en PDF:
+`partidas_pendientes_DBC_20260730.pdf`, o
+`partidas_pendientes_todas_las_sociedades_20260730.pdf` para el consolidado. Fecha en
+formato ISO para que al guardarlos en una carpeta se ordenen solos.
+
+**Se genera con WeasyPrint a partir del MISMO HTML del correo.** Eso es lo importante del
+diseno: hay una sola definicion del layout. Si el PDF se construyera aparte, en unos meses
+uno de los dos tendria una columna que el otro no.
+
+Encima de ese HTML se aplica una hoja de estilos que solo existe para el PDF
+(`_estilos_pdf`): margenes de pagina, numeracion, se desmonta el marco de tarjeta —que en
+papel roba ancho— y **se repite la fila de encabezado en cada hoja**. Eso ultimo aqui no es
+un detalle: el reporte de `DBC` pasa de cien filas, y sin encabezados repetidos a partir de
+la segunda pagina no se sabria que columna es cada una.
+
+Va en **A4 horizontal**, al contrario que anticipos: son siete columnas y una de ellas es
+texto libre, que en vertical saldria partido en tres lineas.
+
+Las tipografias del correo (Barlow, Segoe UI) no existen en el contenedor, asi que el
+Dockerfile instala **Liberation Sans**, compatible en metricas con Arial —el ultimo recurso
+de la pila del correo—, y **Pango**, que es lo que WeasyPrint usa para maquetar texto. Sin
+fuentes instaladas el PDF saldria con cuadraditos.
+
+**Si la generacion del PDF falla, el correo sale igual, sin adjunto y con un aviso en el
+cuerpo.** El dato vale mas que el adjunto: un problema de tipografias no deberia dejar a
+finanzas sin su reporte del dia. El motivo queda en el log.
+
 ### Destinatarios
 
 Documento Firestore `lists/partidas_pendientes` en la base `proan-lista-mails`, con el

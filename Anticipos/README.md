@@ -189,6 +189,31 @@ Se envian dos tipos de correo:
 - **Uno consolidado** con las 16, que empieza con un resumen (sociedad, total de anticipos,
   total de saldos deudores, total combinado y total general) y sigue con el detalle.
 
+### El PDF adjunto
+
+Cada correo lleva adjunto el mismo contenido en PDF: `anticipos_PAL_20260730.pdf`, o
+`anticipos_todas_las_sociedades_20260730.pdf` para el consolidado. Fecha en formato ISO para
+que al guardarlos en una carpeta se ordenen solos.
+
+**Se genera con WeasyPrint a partir del MISMO HTML del correo.** Eso es lo importante del
+diseno: hay una sola definicion del layout. Si el PDF se construyera aparte, en unos meses
+uno de los dos tendria una columna que el otro no.
+
+Encima de ese HTML se aplica una hoja de estilos que solo existe para el PDF
+(`_estilos_pdf`): margenes de pagina, numeracion, se desmonta el marco de tarjeta —que en
+papel roba ancho— y **se repite la fila de encabezado en cada hoja**, porque a partir de la
+segunda pagina las columnas se quedarian sin nombre. Va en **A4 vertical**: con cuatro
+columnas cabe de sobra.
+
+Las tipografias del correo (Barlow, Segoe UI) no existen en el contenedor, asi que el
+Dockerfile instala **Liberation Sans**, compatible en metricas con Arial —el ultimo recurso
+de la pila del correo—, y **Pango**, que es lo que WeasyPrint usa para maquetar texto. Sin
+fuentes instaladas el PDF saldria con cuadraditos.
+
+**Si la generacion del PDF falla, el correo sale igual, sin adjunto y con un aviso en el
+cuerpo.** El dato vale mas que el adjunto: un problema de tipografias no deberia dejar a
+finanzas sin su reporte del dia. El motivo queda en el log.
+
 ### Destinatarios
 
 Documento Firestore `lists/anticipos` en la base `proan-lista-mails`:
