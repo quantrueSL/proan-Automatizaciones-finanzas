@@ -1,77 +1,153 @@
 # Reporte diario de anticipos
 
-Sustituye el reporte que se sacaba a mano de SAP (`reportesEspeciales >
-reportePartidasPendientes > Reporte anticipos`). Calcula los anticipos por sociedad,
-guarda una foto diaria en BigQuery y envia el resultado por correo.
+Cada dia, de lunes a sabado a las 10:00 de Mexico, calcula los anticipos a proveedores de
+16 sociedades, guarda una foto en BigQuery y envia un correo por sociedad mas uno
+consolidado. Sustituye el reporte que se sacaba a mano de SAP (`reportesEspeciales >
+reportePartidasPendientes > Reporte anticipos`).
 
-## Que se considera un anticipo
+## Que es un anticipo
 
-**El saldo deudor de un proveedor en partidas abiertas**: un proveedor al que se le ha
-pagado mas de lo que se le debe.
+Un anticipo es dinero entregado a un proveedor **antes** de que exista factura que lo
+justifique, o pagado **de mas**. Su cuenta queda con **saldo deudor**: es el proveedor
+quien debe, en forma de mercancia o servicio pendiente de entregar. Contablemente es un
+**activo**.
 
-Se calcula sobre `D00_SANDBOX.bsik_real_time` (partidas abiertas de acreedores),
-agrupando por sociedad + cuenta de mayor + proveedor, con el signo que marca `SHKZG`
-(`S` debe suma, `H` haber resta), y quedandose solo con los saldos positivos.
+El saldo de un proveedor se calcula con el indicador de debe o haber, `SHKZG`:
 
-## Decisiones y por que
+```
+saldo = SUMA( +DMBTR si SHKZG='S' (debe) ,  -DMBTR si SHKZG='H' (haber) )
+```
 
-### Solo partidas normales: se excluye `UMSKZ`
+`DMBTR` va siempre en **moneda local**, pesos mexicanos, aunque el documento original
+estuviera en dolares o euros. Por eso se pueden sumar apuntes de distintas divisas sin
+convertir nada. **Si el saldo sale positivo, hay anticipo.**
 
-SAP maneja dos conceptos distintos bajo la palabra anticipo:
+## Los cuatro valores de `UMSKZ`
 
-| `UMSKZ` | Que es | Cuentas | Incluido |
+`UMSKZ` es el indicador de cuenta especial de SAP, y es lo que distingue conceptos que no
+se pueden mezclar:
+
+| `UMSKZ` | Que es | Cuentas | En el reporte |
 |---|---|---|---|
-| *(vacio)* | Partidas normales de proveedor | `2010102`, `2010103`, `2010104`… | **Si** |
-| `A` | Anticipo formal, *down payment* | `1080102`, `1080103`, `1080100` | No |
-| `F` | Solicitud de anticipo, apunte estadistico | las mismas que `A` | No |
+| *(vacio)* | **Partida normal de proveedor.** Facturas y pagos corrientes. Su saldo neto es deudor solo si se ha pagado de mas | **Pasivo**: `20101xx`, `2020xxx`, `2111xx` | **Si**, como «Saldos deudores en cuentas de proveedor» |
+| `A` | **Anticipo formal.** Registrado en SAP declarandolo como anticipo | **Activo**: `10801xx`, `0000140110` | **Si**, como «Anticipos a proveedores» |
+| `F` | **Solicitud de anticipo.** Apunte estadistico para planificar pagos. No representa dinero movido | Las mismas que `A` | **No** |
+| `H` | Otros indicadores especiales | `0000140810` | **No** |
 
-El reporte manual que se automatiza **no incluye los `UMSKZ = 'A'`**, y este proceso
-tampoco, para dar exactamente el mismo numero que hoy circula por finanzas. Los `'A'`
-son anticipos en el sentido contable estricto y son unas 592 partidas, asi que
-**merece la pena que contabilidad revise esta decision**. Si deben entrar, es anadir
-una seccion al reporte.
+Las dos que entran son conceptos distintos y van en **secciones separadas del correo**,
+cada una con su total:
 
-Si algun dia se incluyen: `'A'` y `'F'` **comparten cuenta de mayor**, asi que agrupar
-sin distinguir `UMSKZ` sumaria un anticipo con su propia solicitud de anticipo y
-contaria doble. Se comprobo que hoy pasaria en 42 grupos.
+- Los **`'A'`** son anticipos declarados: alguien los registro como tal, en cuentas de
+  activo de anticipos a proveedores.
+- Los **saldos deudores con `UMSKZ` vacio** son anticipos de hecho: nadie los declaro,
+  simplemente se pago mas de lo debido y una cuenta de pasivo quedo en positivo. 
 
-### No se filtra por cuenta de mayor
+Los **`'F'`** quedan fuera porque son una anotacion, no un saldo: sumarlos a un `'A'` real
+seria contar el mismo anticipo dos veces.
 
-El reporte manual muestra `2010102/2010103/2010104`, pero esas son simplemente las
-cuentas donde caen los saldos deudores hoy, no una definicion. Al revisarlo aparecieron
-5 filas de anticipo en cuentas que ese filtro dejaria fuera (`2010300`, `2010100`,
-`2010150`, `2020203`). Se filtra por signo y la cuenta se muestra como columna, asi que
-una cuenta nueva entra sin tocar codigo.
+## De donde sale el dato
 
-### El nombre del proveedor sale de `dm_vendors`
+| | |
+|---|---|
+| Partidas | `D00_SANDBOX.bsik_real_time`, espejo de **BSIK** de SAP |
+| Nombres | `D20_DIMENSION.dm_vendors`, campo `razon_social` |
 
-`D20_DIMENSION.dm_vendors` cubre el 100% de los proveedores de BSIK y tiene un nombre de
-tabla estable. La alternativa, `LFA1`, vive en snapshots con la fecha en el nombre
-(`proan_LFA1_20260728`, mas de 400 de ellos), que obligaria a construir el nombre de
-tabla en cada ejecucion.
+**BSIK contiene solo partidas abiertas.** Cuando una factura se paga o un anticipo se
+aplica, el apunte **desaparece** de BSIK: no se marca como cerrado.
 
-**`dm_vendors` tiene una fila por direccion, no por proveedor**: 25.147 filas para
-23.155 proveedores. Por eso se deduplica antes de cruzar. Sin ese `GROUP BY` el cruce
-multiplicaria filas de anticipo e inflaria los totales del correo.
 
-### `DMBTR` se convierte a `NUMERIC` antes de sumar
+### Campos que se usan
 
-En la tabla espejo `DMBTR` es `FLOAT`. Sumar dinero en coma flotante arrastra error;
-`NUMERIC` es aritmetica decimal exacta.
+| Campo | |
+|---|---|
+| `BUKRS` | Sociedad |
+| `LIFNR` | Numero de acreedor, con ceros por delante: `0000019801`. `LTRIM` lo deja en `19801` |
+| `HKONT` | Cuenta de mayor |
+| `UMSKZ` | Indicador de cuenta especial |
+| `SHKZG` | Debe (`S`) o haber (`H`) |
+| `DMBTR` | Importe en moneda local |
+| `_ingested_at` | Cuando el replicador escribio la fila |
 
-### Se aborta si el espejo esta caducado
+## La consulta
 
-`bsik_real_time` **no la carga el Airflow del DWH**. El DAG `proan_produccion` solo la
-lee; la escribe un replicador de SAP externo que **reescribe la tabla entera cada dos
-horas** (todas las filas comparten marca de `_ingested_at`, y no hay ni un dia de
-historia). Si ese replicador se para, la tabla se queda con datos viejos sin avisar.
+```sql
+WITH saldos AS (
+  SELECT
+    BUKRS AS sociedad,
+    IFNULL(UMSKZ, '') AS umskz,
+    IFNULL(HKONT, '') AS cuenta,
+    LTRIM(LIFNR, '0') AS proveedor,
+    ROUND(SUM(
+      CASE WHEN SHKZG = 'S' THEN  CAST(DMBTR AS NUMERIC)
+           ELSE                  -CAST(DMBTR AS NUMERIC)
+      END
+    ), 2) AS saldo_neto
+  FROM `proan-quantrue.D00_SANDBOX.bsik_real_time`
+  WHERE IFNULL(UMSKZ, '') IN ('', 'A')
+    AND BUKRS IN UNNEST(@sociedades)
+  GROUP BY sociedad, umskz, cuenta, proveedor
+),
+proveedores AS (
+  SELECT
+    LTRIM(id_proveedor, '0') AS proveedor,
+    ANY_VALUE(razon_social) AS razon_social
+  FROM `proan-quantrue.D20_DIMENSION.dm_vendors`
+  WHERE razon_social IS NOT NULL AND razon_social != ''
+  GROUP BY proveedor
+)
+SELECT s.sociedad,
+       IF(s.umskz = 'A', 'anticipo', 'saldo_deudor') AS tipo,
+       s.cuenta, s.proveedor,
+       IFNULL(p.razon_social, '(sin nombre en la maestra)') AS nombre_proveedor,
+       s.saldo_neto
+FROM saldos s
+LEFT JOIN proveedores p USING (proveedor)
+WHERE s.saldo_neto > 0
+ORDER BY s.sociedad, tipo, s.saldo_neto DESC
+```
 
-Antes de enviar nada se mira la antiguedad de la ultima carga y el proceso **falla** si
-pasa de `ANTICIPOS_MAX_ANTIGUEDAD_HORAS` (6 por defecto), en vez de mandar un reporte
-caducado como si fuera del dia.
+Cuatro detalles que no son opcionales:
 
-Por la misma razon **no se usa `D30_INTEGRATION.sap_bsik_open_items`**, que es la version
-curada: cuando se reviso iba dos dias por detras.
+- **`UMSKZ` va en el `GROUP BY`, no solo en el `WHERE`.** `'A'` y `'F'` comparten cuenta de
+  mayor, asi que agrupar solo por cuenta mezclaria un anticipo con su propia solicitud.
+- **`CAST(DMBTR AS NUMERIC)`.** En el espejo `DMBTR` es `FLOAT`, y sumar dinero en coma
+  flotante arrastra error. `NUMERIC` es aritmetica decimal exacta.
+- **`dm_vendors` se deduplica antes de cruzar.** Tiene una fila por direccion, no por
+  proveedor: 25.147 filas para 23.155 proveedores. Sin el `GROUP BY`, el cruce
+  multiplicaria filas e inflaria los totales del correo.
+- **No se filtra por cuenta de mayor.** El anticipo lo define el signo del saldo. Las
+  cuentas que aparezcan en un reporte concreto son las que tenian saldo ese dia en esa
+  sociedad, no una lista cerrada. La cuenta se muestra como columna informativa.
+
+## Control de frescura
+
+Antes de calcular nada, el proceso mira `MAX(_ingested_at)` y **falla** si el espejo tiene
+mas de `ANTICIPOS_MAX_ANTIGUEDAD_HORAS` horas (6 por defecto).
+
+Si el replicador de SAP se para, la tabla no se vacia ni avisa: se queda con la ultima
+copia buena. Sin este control el reporte saldria cada dia con la misma cara. Un Cloud Run
+Job en rojo se ve; un correo con datos viejos, no.
+
+## Sociedades
+
+Las 16 del Excel de correos, en ese orden:
+
+```
+PAN DBC ROMM PRA MPE MAL HEGP ISE PIN SAP ABP AME CCP PAL PAT BAG
+```
+
+En `bsik_real_time` hay 23; quedan fuera a proposito `ADE`, `FAG`, `FEF`, `GSI`, `PFO`,
+`SCO` y `SCO1`.
+
+Una sociedad sin anticipos de ninguno de los dos tipos **recibe su correo igualmente**, con
+un «Sin anticipos pendientes»: el silencio no se distingue de un proceso roto.
+
+## Los saldos negativos no son de este reporte
+
+Al separar por signo, el lado negativo resulta ser dos o tres ordenes de magnitud mayor y
+con muchas mas filas: son las **facturas pendientes de pago**. Corresponden a la
+automatizacion `Partidas abiertas por compensar`, que va por otro camino
+(`bsis_real_time`, clase `ZR`, cuentas terminadas en `I`).
 
 ## Tabla de salida
 
@@ -80,72 +156,75 @@ curada: cuando se reviso iba dos dias por detras.
 
 | Campo | Tipo | |
 |---|---|---|
-| `fecha_reporte` | DATE | Fecha de Mexico en la que se ejecuta |
+| `fecha_reporte` | DATE | Fecha de Mexico de la ejecucion |
 | `sociedad` | STRING | `BUKRS` |
+| `tipo` | STRING | `anticipo` (`UMSKZ = 'A'`) o `saldo_deudor` (`UMSKZ` vacio) |
 | `cuenta` | STRING | `HKONT`. Cadena vacia si el apunte no la trae |
-| `proveedor` | STRING | `LIFNR` sin los ceros de relleno |
+| `proveedor` | STRING | `LIFNR` sin ceros de relleno |
 | `nombre_proveedor` | STRING | `razon_social` de `dm_vendors` |
 | `saldo_neto` | NUMERIC | Siempre positivo |
 | `actualizado_en` | DATETIME | Hora de Mexico de la ejecucion |
 
-**Es la unica historia que existe.** BSIK solo contiene partidas **abiertas**: cuando un
-anticipo se compensa la fila desaparece, el espejo se reescribe cada dos horas y
-`bsak_real_time` (donde SAP guardaria las compensadas) esta **vacia** en BigQuery. Sin
-esta tabla no hay forma de saber que un anticipo existio ni cuanto tiempo estuvo abierto.
+**Es la unica historia que existe.** BSIK solo tiene partidas abiertas, el espejo se
+reescribe cada dos horas y `bsak_real_time` esta vacia: sin esta tabla no hay forma de
+saber que un anticipo existio ni cuanto tiempo estuvo abierto. Cuesta del orden de decenas
+de filas al dia.
 
-La escritura usa el decorador de particion (`tabla$YYYYMMDD`) con `WRITE_TRUNCATE`, asi
-que **reejecutar el proceso el mismo dia reemplaza la foto del dia entera**, sin
-duplicados ni restos de un calculo anterior.
+Se escribe con el **decorador de particion** (`Anticipos_evolucion$YYYYMMDD`) y
+`WRITE_TRUNCATE`, que reemplaza la foto del dia entera de forma atomica. No sirve un
+`MERGE` por clave: si un anticipo estaba esta manana y ya no esta, su fila **tiene que
+desaparecer** de la foto, y un `MERGE` actualiza e inserta pero no borra lo que dejo de
+existir.
 
-## Sociedades
+## El correo
 
-Las 16 del reporte, en el orden de las columnas del Excel de correos:
+Cada sociedad se presenta con sus dos secciones — **Anticipos a proveedores** y **Saldos
+deudores en cuentas de proveedor** — cada una con detalle de cuenta, proveedor, nombre y
+saldo, ordenado de mayor a menor, y su total. Debajo, el total combinado, que solo aparece
+si hay las dos secciones.
 
-```
-PAN DBC ROMM PRA MPE MAL HEGP ISE PIN SAP ABP AME CCP PAL PAT BAG
-```
+Se envian dos tipos de correo:
 
-En `bsik_real_time` hay 23 sociedades; las 7 restantes (`ADE`, `FAG`, `FEF`, `GSI`,
-`PFO`, `SCO`, `SCO1`) quedan fuera a proposito.
+- **Uno por sociedad**, con las dos secciones de esa sociedad.
+- **Uno consolidado** con las 16, que empieza con un resumen (sociedad, total de anticipos,
+  total de saldos deudores, total combinado y total general) y sigue con el detalle.
 
-Una sociedad sin anticipos **recibe su correo igualmente**, indicando que no hay
-ninguno. Es informacion, no un fallo, y el silencio no se distingue de un proceso roto.
+### Destinatarios
 
-## Destinatarios
-
-Documento Firestore `lists/anticipos` en la base `proan-lista-mails`, con dos bloques
-**declarados de forma explicita**:
+Documento Firestore `lists/anticipos` en la base `proan-lista-mails`:
 
 | Campo | Tipo | |
 |---|---|---|
 | `globales` | array | Reciben **un** correo con las 16 sociedades |
 | `por_sociedad` | map sociedad → array | Un correo por sociedad |
+| `emails` | array | La union. **El proceso la ignora**; existe para que la interfaz de Mailing-lists considere la lista activa |
+| `kind` | string | `mailing` |
+| `enabled` | bool | |
 
-Se declara en vez de deducirse. La alternativa era mirar quien aparece en las 16
-sociedades y mandarle uno solo, pero entonces **el dia que alguien sale de una sociedad
-su comportamiento cambiaria en silencio de un correo a quince**.
+Hay direcciones que estan en todas las sociedades. Esas van en `globales` y **reciben un
+unico correo con todas las sociedades juntas**, en vez de uno por cada una.
 
-Hace falta porque hay direcciones en las 16 columnas del Excel de origen
-(`divisas@proan.com`, `tesoreria@proan.com`, `luisenrique.romo@proan.com`): con un correo
-por sociedad recibirian 16 cada manana.
+Quien esta en `globales` se declara, no se deduce de `por_sociedad`, para que el
+comportamiento no cambie solo porque alguien entre o salga de una sociedad.
 
-Las direcciones se normalizan al leerlas, asi que acepta tanto `alguien@proan.com` como
-`Nombre Apellido <alguien@proan.com>`, que es el formato del Excel. Se descartan las
-repetidas sin distinguir mayusculas y las que no son una direccion.
+Las direcciones se normalizan al leerlas, asi que la lista acepta tanto
+`alguien@proan.com` como `Nombre Apellido <alguien@proan.com>`. Se descartan las repetidas
+sin distinguir mayusculas, las vacias y las que no son una direccion.
 
-Si Firestore no esta disponible se cae a `ANTICIPOS_EMAIL_TO` y luego a los
+**Si Firestore no esta disponible** se cae a `ANTICIPOS_EMAIL_TO` y luego a los
 destinatarios por defecto del codigo, y en ese caso **se envia solo el correo global**:
 nunca se adivina quien debe recibir los datos de una sociedad concreta.
 
 El envio es por SendGrid, con el remitente en `to` y los destinatarios reales en `CC`,
 igual que en `Cambio divisa`.
 
-## Frecuencia
+### Horario
 
-`0 10 * * 1-6` en `America/Mexico_City`: **de lunes a sabado a las 10:00 de Mexico**. El
+`0 10 * * 1-6` en `America/Mexico_City`. Mexico va a **UTC−6 todo el ano** desde 2022, asi
+que las 10:00 de Mexico son las **16:00 UTC** y las **18:00 en Espana** en verano. El
 espejo se recarga cada dos horas, asi que a esa hora el dato es del mismo dia.
 
-## Variables de entorno
+## Operacion
 
 | Variable | Por defecto | |
 |---|---|---|
@@ -160,31 +239,37 @@ espejo se recarga cada dos horas, asi que a esa hora el dato es del mismo dia.
 | `FIRESTORE_LISTS_COLLECTION` | `lists` | |
 | `ANTICIPOS_LIST_ID` | `anticipos` | |
 
-## Probar sin enviar nada
+### Probar sin enviar nada
 
-`ANTICIPOS_EMAIL_DRY_RUN=true` calcula, guarda en BigQuery y **deja cada correo como un
-fichero HTML** en `salida_dry_run/` para abrirlo en el navegador, sin mandar nada.
-Combinado con `ANTICIPOS_ONLY_SOCIEDADES=PAL,PAN` la prueba son dos correos y no
-diecisiete.
+`ANTICIPOS_EMAIL_DRY_RUN=true` calcula, guarda en BigQuery y deja cada correo como un
+fichero HTML en `salida_dry_run/`. Con `ANTICIPOS_ONLY_SOCIEDADES=PAL,PAN` la prueba son
+tres correos y no diecisiete.
 
-En Cloud Run el sistema de ficheros es de solo lectura fuera de `/tmp`, asi que ahi la
-copia local no se escribe: se avisa en el log y el resto del dry run funciona igual.
+En Cloud Run los ficheros se escriben pero mueren con el contenedor: alli el dry run vale
+para validar el log, no para revisar el HTML. Para eso, ejecutarlo en local.
 
-## Deploy
+### Deploy
 
 ```bash
 cp .env.example .env   # y rellena SENDGRID_API_KEY
 bash deploy.sh
 ```
 
-`deploy.sh` construye la imagen, despliega el Cloud Run Job `anticipos-diario`, le
-inyecta las variables y crea o actualiza el Cloud Scheduler.
+Construye la imagen, despliega el Cloud Run Job `anticipos-diario`, le inyecta las
+variables y crea o actualiza el Cloud Scheduler.
 
 **Cambiar `.env` no cambia nada en produccion hasta volver a ejecutar `deploy.sh`.**
-Ejecutar el Job a mano usa la configuracion que ya estaba desplegada:
+Ejecutar el Job a mano usa la configuracion ya desplegada:
 
 ```bash
 gcloud run jobs execute anticipos-diario --region us-west4 --wait
+```
+
+Para parar los envios sin desmontar nada:
+
+```bash
+gcloud scheduler jobs pause  anticipos-diario-scheduler --location us-west4
+gcloud scheduler jobs resume anticipos-diario-scheduler --location us-west4
 ```
 
 La *service account* del Job necesita leer `D00_SANDBOX` y `D20_DIMENSION`, escribir en
@@ -192,7 +277,16 @@ La *service account* del Job necesita leer `D00_SANDBOX` y `D20_DIMENSION`, escr
 
 ## Pendiente
 
-- Poblar `lists/anticipos` en Firestore. Los campos `globales` y `por_sociedad` **no los
-  gestiona todavia la interfaz de Mailing-lists**: hay que anadirlos a `firestore_payload`
-  o se perderan en cada guardado desde la app. Hasta entonces, se editan en la consola.
-- Confirmar con contabilidad la exclusion de `UMSKZ = 'A'`.
+- **Avisar a contabilidad de que el reporte incluye los `UMSKZ = 'A'`**, que el manual no
+  mostraba. El importe total es un orden de magnitud mayor que el de siempre, y conviene
+  que lo sepan antes de encontrarselo. Las dos secciones estan separadas para que se pueda
+  comparar con lo que llegaba antes.
+- **Parchear la app de Mailing-lists** para que gestione `globales` y `por_sociedad`.
+  Mientras no lo haga: **no abrir la lista `anticipos` en la interfaz y darle a Guardar**,
+  porque `save_list` escribe el documento completo con `set()` sin `merge` y borraria los
+  dos campos, dejando el reporte sin destinatarios en silencio. El aviso esta tambien en el
+  `comment` del documento.
+- **Completar los destinatarios reales.** Hoy la lista solo tiene direcciones de prueba. Al
+  pasarlas del Excel hay tres cosas que revisar: una direccion con el dominio mal escrito,
+  un correo personal de gmail entre los destinatarios, y alguna con un espacio al final. El
+  proceso normaliza espacios y formato, pero un dominio con errata no lo puede adivinar.
