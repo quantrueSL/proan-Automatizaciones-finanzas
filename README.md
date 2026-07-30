@@ -9,7 +9,7 @@ propia carpeta con su propio despliegue.
 |---|---|---|
 | [`Cambio divisa`](Cambio%20divisa/README.md) | En producción | Obtiene diariamente el tipo de cambio oficial de Banco de México, lo guarda en BigQuery y envía un correo con los valores. |
 | [`Anticipos`](Anticipos/README.md) | En pruebas | Calcula a diario los anticipos a proveedores por sociedad, guarda una foto en BigQuery y envía un correo por sociedad. |
-| `Partidas abiertas por compensar` | Pendiente de desarrollo | — |
+| [`Partidas abiertas por compensar`](Partidas%20abiertas%20por%20compensar/README.md) | En pruebas | Lista a diario las partidas de cuentas de mayor sin compensar por sociedad, guarda una foto en BigQuery y envía un correo por sociedad. |
 | `Reportes diarios contables` | Pendiente de desarrollo | — |
 
 Cada carpeta con una automatización desarrollada incluye su propio `README.md`
