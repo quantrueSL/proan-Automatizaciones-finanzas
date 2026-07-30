@@ -8,7 +8,7 @@ propia carpeta con su propio despliegue.
 | Carpeta | Estado | Descripción |
 |---|---|---|
 | [`Cambio divisa`](Cambio%20divisa/README.md) | En producción | Obtiene diariamente el tipo de cambio oficial de Banco de México, lo guarda en BigQuery y envía un correo con los valores. |
-| `Anticipos` | Pendiente de desarrollo | — |
+| [`Anticipos`](Anticipos/README.md) | En pruebas | Calcula a diario los anticipos a proveedores por sociedad, guarda una foto en BigQuery y envía un correo por sociedad. |
 | `Partidas abiertas por compensar` | Pendiente de desarrollo | — |
 | `Reportes diarios contables` | Pendiente de desarrollo | — |
 
