@@ -36,7 +36,7 @@ def build_chart(df, cuenta_nombre, current_year, prior_year, out_path):
 
     divisor, unidad = _elegir_unidad(df[["actual", "anterior"]].abs().to_numpy().max())
 
-    fig, ax1 = plt.subplots(figsize=(10, 5), dpi=150)
+    fig, ax1 = plt.subplots(figsize=(10, 3.8), dpi=150)
     fig.patch.set_facecolor(COLORS["surface"])
     ax1.set_facecolor(COLORS["surface"])
 
@@ -61,11 +61,22 @@ def build_chart(df, cuenta_nombre, current_year, prior_year, out_path):
     ax1.spines["bottom"].set_color(COLORS["muted"])
 
     # % variación, topado a +/-PCT_CAP (igual que la referencia limita a 500%).
-    # Huecos (NaN) donde la base no es material -> la línea se corta ahí, no inventa un valor.
-    pct_capped = df["pct_variacion"].clip(-PCT_CAP, PCT_CAP)
+    # Donde la base no es material (NaN) se traza como 0 para que la línea quede unida sin
+    # cortes; ese punto se marca aparte (hueco + "N/A") para no confundirlo con un 0% real.
+    pct_original = df["pct_variacion"]
+    pct_capped = pct_original.fillna(0.0).clip(-PCT_CAP, PCT_CAP)
     ax2 = ax1.twinx()
     ax2.plot(x, pct_capped * 100, color=COLORS["critical"], marker="o", markersize=4.5,
               linewidth=1.6, label=f"% Variación (máx ±{PCT_CAP:.0%})", zorder=3)
+
+    for i, pct in enumerate(pct_original):
+        if pct != pct:  # NaN: base no material, marcado como hueco sobre la línea unida
+            ax2.plot(x[i], pct_capped.iloc[i] * 100, marker="o", markersize=5.5,
+                      markerfacecolor=COLORS["surface"], markeredgecolor=COLORS["critical"],
+                      markeredgewidth=1.4, zorder=4)
+            ax2.annotate("N/A", (x[i], pct_capped.iloc[i] * 100), textcoords="offset points",
+                         xytext=(0, 8), ha="center", fontsize=6.5, color=COLORS["muted"],
+                         fontweight="bold")
     ax2.set_ylabel("% Variación", fontsize=9, color=COLORS["critical"])
     ax2.tick_params(axis="y", colors=COLORS["critical"], labelsize=8, length=0)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))

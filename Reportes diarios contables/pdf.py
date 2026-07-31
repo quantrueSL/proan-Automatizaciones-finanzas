@@ -149,6 +149,7 @@ def _tabla_sociedades(df, current_year, prior_year):
     rows.append(["TOTAL GENERAL", _money(total_anterior), _money(total_actual),
                  _money(total_dif), _pct(total_pct)])
 
+    n_rows = len(rows)
     tbl = Table(rows, colWidths=[55 * mm, 32 * mm, 32 * mm, 32 * mm, 24 * mm], repeatRows=1)
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), C["header_bg"]),
@@ -161,10 +162,22 @@ def _tabla_sociedades(df, current_year, prior_year):
         ("LINEBELOW", (0, 0), (-1, 0), 0, rl_colors.white),
         ("LINEBELOW", (0, 1), (-1, -2), 0.4, C["grid"]),
         ("LINEABOVE", (0, -1), (-1, -1), 0.8, C["text_primary"]),
+        ("BACKGROUND", (0, -1), (-1, -1), C["tile_bg"]),
         ("FONTNAME", (0, -1), (-1, -1), FONT_BOLD),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("TOPPADDING", (0, -1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]
+    # Franjas alternadas (excepto encabezado y fila de total) para lectura más fácil.
+    for i in range(1, n_rows - 1):
+        if i % 2 == 0:
+            style.append(("BACKGROUND", (0, i), (-1, i), C["tile_bg"]))
     for i, r in df_ordenado.reset_index().iterrows():
         color = _signo_color(r["pct_variacion"])
         style.append(("TEXTCOLOR", (3, i + 1), (4, i + 1), color))
@@ -175,11 +188,11 @@ def _tabla_sociedades(df, current_year, prior_year):
 def build_section(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year, prior_year):
     flow = []
     flow.extend(_header(cuenta_nombre, raccts, fecha_str))
-    flow.append(Spacer(1, 10))
+    flow.append(Spacer(1, 7))
     flow.append(_stat_tiles(df["actual"].sum(), df["anterior"].sum(), current_year, prior_year))
-    flow.append(Spacer(1, 12))
-    flow.append(Image(chart_path, width=180 * mm, height=90 * mm))
-    flow.append(Spacer(1, 12))
+    flow.append(Spacer(1, 8))
+    flow.append(Image(chart_path, width=180 * mm, height=68 * mm))
+    flow.append(Spacer(1, 8))
     flow.append(_tabla_sociedades(df, current_year, prior_year))
     return flow
 
