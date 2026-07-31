@@ -29,6 +29,11 @@ No hace falta filtrar por AUGBL: se comprobo que de las 1.487 filas de la tabla 
 una tiene documento de compensacion, y no es de clase ZR. El espejo no arrastra
 partidas ya compensadas.
 
+El nombre de cada sociedad sale de D20_DIMENSION.dm_company (company_code ->
+company_name), para que el correo diga "Sociedad PAN - Proteina Animal SA de CV" y no
+solo el codigo. Ahi company_code es unico —87 filas, 87 codigos— asi que el cruce no
+necesita deduplicar. La columna `company` de esa tabla esta vacia en las 87 filas.
+
 Decisiones tomadas, con su motivo
 ---------------------------------
 1. No se filtra por sufijo de cuenta.
@@ -118,6 +123,7 @@ from zoneinfo import ZoneInfo
 
 PROJECT_ID = "proan-quantrue"
 ORIGEN_BSIS = f"{PROJECT_ID}.D00_SANDBOX.bsis_real_time"
+ORIGEN_SOCIEDADES = f"{PROJECT_ID}.D20_DIMENSION.dm_company"
 DESTINO = f"{PROJECT_ID}.D60_REPORTING.Partidas_pendientes_evolucion"
 
 CLASE_DOCUMENTO = "ZR"
@@ -135,6 +141,7 @@ DIAS_PARA_AVISAR = 90
 
 ZONA_MEXICO = ZoneInfo("America/Mexico_City")
 SIN_CUENTA = "(sin cuenta)"
+SIN_NOMBRE_SOCIEDAD = "(sin nombre en la maestra)"
 SIN_TEXTO = "—"
 DESTINATARIOS_POR_DEFECTO = ("pcoma@quantrue.com",)
 
@@ -280,6 +287,57 @@ def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, An
         logging.warning("%s partidas con fecha de contabilizacion no interpretable", sin_fecha)
 
     return filas
+
+
+def consultar_nombres_sociedad(client, sociedades: tuple[str, ...]) -> dict[str, str]:
+    """
+    Codigo de sociedad -> razon social, desde el maestro de empresas.
+
+    No hace falta deduplicar: company_code es unico en dm_company, 87 filas y 87 codigos
+    distintos. La columna `company` de esa tabla esta vacia en las 87 filas; la buena es
+    company_name.
+
+    Si el maestro falla se devuelve un diccionario vacio y el reporte sale con los
+    codigos a secas. El nombre es una comodidad de lectura, no un dato del reporte: no
+    tiene sentido dejar a finanzas sin su correo porque una tabla de referencia no
+    responda.
+    """
+    from google.cloud import bigquery
+
+    consulta = f"""
+        SELECT company_code, company_name
+        FROM `{ORIGEN_SOCIEDADES}`
+        WHERE company_code IN UNNEST(@sociedades)
+    """
+    configuracion = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("sociedades", "STRING", list(sociedades)),
+        ]
+    )
+
+    try:
+        nombres = {
+            fila["company_code"]: fila["company_name"]
+            for fila in client.query(consulta, job_config=configuracion).result()
+            if fila["company_name"]
+        }
+    except Exception as exc:
+        logging.warning("No se pudieron leer los nombres de sociedad: %s", exc)
+        return {}
+
+    faltan = [s for s in sociedades if s not in nombres]
+    if faltan:
+        logging.warning("Sociedades sin nombre en el maestro: %s", ", ".join(faltan))
+    return nombres
+
+
+def _etiqueta_sociedad(codigo: str, nombres: dict[str, str]) -> str:
+    """'PAN - Proteina Animal SA de CV', o solo el codigo si no hay nombre."""
+    if not nombres:
+        # El maestro entero fallo. Mejor el codigo a secas que repetir dieciseis veces
+        # que falta el nombre.
+        return codigo
+    return f"{codigo} - {nombres.get(codigo, SIN_NOMBRE_SOCIEDAD)}"
 
 
 def agrupar(
@@ -574,11 +632,15 @@ def _tabla_cuenta(partidas: list[dict[str, Any]]) -> str:
     )
 
 
-def _bloque_sociedad(sociedad: str, cuentas: dict[str, list[dict[str, Any]]]) -> str:
+def _bloque_sociedad(
+    sociedad: str,
+    cuentas: dict[str, list[dict[str, Any]]],
+    nombres: dict[str, str],
+) -> str:
     partes = [
         f'<p class="titulo-sociedad" style="font-family:Barlow,\'Segoe UI\',Arial,sans-serif;'
         f'font-size:16px;color:{AZUL};font-weight:800;margin:28px 0 2px;">'
-        f"Sociedad {escape(sociedad)}</p>"
+        f"Sociedad {escape(_etiqueta_sociedad(sociedad, nombres))}</p>"
     ]
 
     if not cuentas:
@@ -614,7 +676,24 @@ def _bloque_sociedad(sociedad: str, cuentas: dict[str, list[dict[str, Any]]]) ->
     return "".join(partes)
 
 
-def _resumen_sociedades(agrupado: dict[str, dict[str, list[dict[str, Any]]]]) -> str:
+def _celda_sociedad(codigo: str, nombres: dict[str, str]) -> str:
+    """Codigo en negrita y razon social al lado, atenuada, en una sola celda.
+
+    En una sola celda y no en dos columnas: los nombres rondan los 23 caracteres y una
+    columna propia estrecharia las de importes y dias, que son las que se leen."""
+    nombre = "" if not nombres else nombres.get(codigo, SIN_NOMBRE_SOCIEDAD)
+    extra = (
+        f' <span style="font-weight:400;color:#6b7280;">{escape(nombre)}</span>'
+        if nombre
+        else ""
+    )
+    return _celda(f"{escape(codigo)}{extra}", fuerte=True)
+
+
+def _resumen_sociedades(
+    agrupado: dict[str, dict[str, list[dict[str, Any]]]],
+    nombres: dict[str, str],
+) -> str:
     """Tabla de una linea por sociedad, solo para el correo global."""
     filas = []
     gran_total = Decimal("0")
@@ -626,7 +705,7 @@ def _resumen_sociedades(agrupado: dict[str, dict[str, list[dict[str, Any]]]]) ->
         viejo = dias >= DIAS_PARA_AVISAR
         filas.append(
             "<tr>"
-            + _celda(escape(sociedad), fuerte=True)
+            + _celda_sociedad(sociedad, nombres)
             + _celda(str(len(todas)), derecha=True)
             + _celda(str(len(cuentas)), derecha=True)
             + _celda(
@@ -865,6 +944,7 @@ def enviar_reportes(
     fecha_reporte,
     globales: list[str],
     por_sociedad: dict[str, list[str]],
+    nombres: dict[str, str],
 ) -> list[dict[str, Any]]:
     fecha_texto = fecha_reporte.strftime("%d/%m/%Y")
     sufijo_fichero = fecha_reporte.strftime("%Y%m%d")
@@ -886,11 +966,12 @@ def enviar_reportes(
 
     if globales:
         bloques = "".join(
-            _bloque_sociedad(sociedad, cuentas) for sociedad, cuentas in agrupado.items()
+            _bloque_sociedad(sociedad, cuentas, nombres)
+            for sociedad, cuentas in agrupado.items()
         )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
-            _resumen_sociedades(agrupado) + bloques,
+            _resumen_sociedades(agrupado, nombres) + bloques,
             "partidas_pendientes_todas_las_sociedades",
         )
         resultados.append(
@@ -915,8 +996,10 @@ def enviar_reportes(
             continue
 
         html, pdf, nombre_pdf = preparar(
-            f"Sociedad {sociedad}. Fecha de consulta {fecha_texto}.",
-            _bloque_sociedad(sociedad, cuentas),
+            f"Sociedad {_etiqueta_sociedad(sociedad, nombres)}. "
+            f"Fecha de consulta {fecha_texto}.",
+            _bloque_sociedad(sociedad, cuentas, nombres),
+            # El nombre del fichero se queda con el codigo: corto y sin caracteres raros.
             f"partidas_pendientes_{sociedad}",
         )
         resultados.append(
@@ -949,6 +1032,8 @@ def main() -> None:
     logging.info("Consultando partidas %s de %s sociedades", CLASE_DOCUMENTO, len(sociedades))
     filas = consultar_partidas(client, sociedades)
     agrupado = agrupar(filas, sociedades)
+    nombres = consultar_nombres_sociedad(client, sociedades)
+    logging.info("Nombres de sociedad resueltos: %s de %s", len(nombres), len(sociedades))
 
     viejas = sum(
         1 for f in filas
@@ -978,7 +1063,7 @@ def main() -> None:
         len(por_sociedad),
     )
 
-    resultados = enviar_reportes(agrupado, fecha_reporte, globales, por_sociedad)
+    resultados = enviar_reportes(agrupado, fecha_reporte, globales, por_sociedad, nombres)
     for resultado in resultados:
         logging.info("Correo: %s", resultado)
 
