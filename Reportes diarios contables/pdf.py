@@ -12,7 +12,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak, Flowable,
 )
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 from config import COLORS, FONT_REGULAR_TTF, FONT_BOLD_TTF
 
@@ -28,6 +28,18 @@ _STYLE_TITLE = ParagraphStyle("titulo", fontName=FONT_BOLD, fontSize=17,
                                textColor=rl_colors.white, leading=20)
 _STYLE_SUBTITLE = ParagraphStyle("subtitulo", fontName=FONT_REGULAR, fontSize=9,
                                   textColor=rl_colors.HexColor("#c9d6e5"), leading=12)
+
+# Estilos de celda para tablas con encabezados/nombres largos (Descuentos y Bonificaciones):
+# usar Paragraph en vez de strings planos evita que el texto se desborde sobre la columna
+# vecina cuando no cabe (los strings planos en Table no hacen wrap).
+_STYLE_TH = ParagraphStyle("th", fontName=FONT_BOLD, fontSize=7,
+                            textColor=rl_colors.white, leading=8.5, alignment=TA_CENTER)
+_STYLE_TH_LEFT = ParagraphStyle("th_left", parent=_STYLE_TH, alignment=TA_LEFT)
+_STYLE_TD = ParagraphStyle("td", fontName=FONT_REGULAR, fontSize=7.5,
+                            textColor=C["text_primary"], leading=9, alignment=TA_RIGHT)
+_STYLE_TD_LEFT = ParagraphStyle("td_left", parent=_STYLE_TD, alignment=TA_LEFT)
+_STYLE_TD_BOLD = ParagraphStyle("td_bold", parent=_STYLE_TD, fontName=FONT_BOLD)
+_STYLE_TD_BOLD_LEFT = ParagraphStyle("td_bold_left", parent=_STYLE_TD_BOLD, alignment=TA_LEFT)
 
 
 def _signo_color(v):
@@ -194,6 +206,106 @@ def build_section(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year
     flow.append(Image(chart_path, width=180 * mm, height=68 * mm))
     flow.append(Spacer(1, 8))
     flow.append(_tabla_sociedades(df, current_year, prior_year))
+    return flow
+
+
+def _header_descuentos(fecha_str):
+    subtitulo = f"CUENTAS DE VENTAS (RACCT 000401%)  |  AL DÍA DE HOY ({fecha_str}), MXN"
+    return [RoundedHeader(180 * mm, 26 * mm, "Descuentos y Bonificaciones", subtitulo)]
+
+
+def _stat_tiles_descuentos(ingresos_total, descuentos_total, current_year):
+    pct = (descuentos_total / ingresos_total) if ingresos_total else float("nan")
+
+    tile_w, tile_h, gap = 58 * mm, 22 * mm, 2 * mm
+    tiles_data = [
+        (f"Ingresos totales {current_year} (hoy)", _money(ingresos_total), C["text_primary"], C["header_bg"]),
+        (f"Descuentos totales {current_year} (hoy)", _money(descuentos_total), C["text_primary"], C["header_bg"]),
+        ("% Global (Descuentos/Ingresos)", _pct(pct), C["text_primary"], C["header_bg"]),
+    ]
+    tiles = [StatTile(tile_w, tile_h, label, value, color, accent)
+             for label, value, color, accent in tiles_data]
+    tbl = Table([tiles], colWidths=[tile_w] * 3, rowHeights=[tile_h])
+    tbl.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
+def _p(text, style):
+    return Paragraph(str(text), style)
+
+
+def _tabla_descuentos(df, current_year, prior_year):
+    header = ["Sociedad", f"Ingresos {prior_year}", f"Ingresos {current_year} (HOY)",
+              f"Descuentos {prior_year}", f"Descuentos {current_year} (HOY)",
+              f"% {prior_year}", f"% {current_year} (HOY)"]
+    rows = [[_p(header[0], _STYLE_TH_LEFT)] + [_p(h, _STYLE_TH) for h in header[1:]]]
+
+    df_ordenado = df.sort_values("ingresos_actual", ascending=False, key=abs)
+    for _, r in df_ordenado.iterrows():
+        rows.append([
+            _p(r["nombre_sociedad"], _STYLE_TD_LEFT),
+            _p(_money(r["ingresos_anterior"]), _STYLE_TD),
+            _p(_money(r["ingresos_actual"]), _STYLE_TD),
+            _p(_money(r["descuentos_anterior"]), _STYLE_TD),
+            _p(_money(r["descuentos_actual"]), _STYLE_TD),
+            _p(_pct(r["pct_anterior"]), _STYLE_TD),
+            _p(_pct(r["pct_actual"]), _STYLE_TD),
+        ])
+
+    total_ingresos_actual = df["ingresos_actual"].sum()
+    total_ingresos_anterior = df["ingresos_anterior"].sum()
+    total_descuentos_actual = df["descuentos_actual"].sum()
+    total_descuentos_anterior = df["descuentos_anterior"].sum()
+    total_pct_actual = (total_descuentos_actual / total_ingresos_actual) if total_ingresos_actual else float("nan")
+    total_pct_anterior = (total_descuentos_anterior / total_ingresos_anterior) if total_ingresos_anterior else float("nan")
+    rows.append([
+        _p("TOTAL GENERAL", _STYLE_TD_BOLD_LEFT),
+        _p(_money(total_ingresos_anterior), _STYLE_TD_BOLD),
+        _p(_money(total_ingresos_actual), _STYLE_TD_BOLD),
+        _p(_money(total_descuentos_anterior), _STYLE_TD_BOLD),
+        _p(_money(total_descuentos_actual), _STYLE_TD_BOLD),
+        _p(_pct(total_pct_anterior), _STYLE_TD_BOLD),
+        _p(_pct(total_pct_actual), _STYLE_TD_BOLD),
+    ])
+
+    n_rows = len(rows)
+    tbl = Table(rows, colWidths=[44 * mm, 25 * mm, 27 * mm, 22 * mm, 24 * mm, 17 * mm, 19 * mm], repeatRows=1)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), C["header_bg"]),
+        ("LINEBELOW", (0, 0), (-1, 0), 0, rl_colors.white),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.4, C["grid"]),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.8, C["text_primary"]),
+        ("BACKGROUND", (0, -1), (-1, -1), C["tile_bg"]),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("TOPPADDING", (0, -1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]
+    # Franjas alternadas (excepto encabezado y fila de total) para lectura más fácil.
+    for i in range(1, n_rows - 1):
+        if i % 2 == 0:
+            style.append(("BACKGROUND", (0, i), (-1, i), C["tile_bg"]))
+    tbl.setStyle(TableStyle(style))
+    return tbl
+
+
+def build_section_descuentos(df, chart_path, fecha_str, current_year, prior_year):
+    flow = []
+    flow.extend(_header_descuentos(fecha_str))
+    flow.append(Spacer(1, 7))
+    flow.append(_stat_tiles_descuentos(df["ingresos_actual"].sum(), df["descuentos_actual"].sum(), current_year))
+    flow.append(Spacer(1, 8))
+    flow.append(Image(chart_path, width=180 * mm, height=68 * mm))
+    flow.append(Spacer(1, 8))
+    flow.append(_tabla_descuentos(df, current_year, prior_year))
     return flow
 
 

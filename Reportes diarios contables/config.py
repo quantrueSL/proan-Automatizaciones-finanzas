@@ -14,7 +14,6 @@ CUENTAS = {
     "Mermas": ["0005010628"],
     "Variación de Precios": ["0005010632"],
     "Gastos no Deducibles": ["0005020000"],
-    "Descuentos y Bonificaciones": ["0004018001", "0004018003", "0004018178"],
 }
 
 # Solo se generan las cuentas listadas aquí. El usuario pidió limitarse a
@@ -25,6 +24,41 @@ CUENTAS_ACTIVAS = ["Gastos no Deducibles"]
 # El mapeo RBUKRS -> nombre de sociedad ya NO se hardcodea aquí: se carga en tiempo de
 # ejecución desde D20_DIMENSION.dm_company (ver datos.fetch_sociedades). SKAT es el
 # catálogo de cuentas contables, no de sociedades, así que no aplica para esto.
+
+# --- Descuentos y Bonificaciones -------------------------------------------------
+# No usa CUENTAS/CUENTAS_ACTIVAS: en vez de una lista fija de RACCT, cubre un RANGO
+# de cuentas de Ventas y clasifica cada cuenta como Ingreso o Descuento según el signo
+# de su saldo neto (ver datos.fetch_descuentos). Se genera siempre, junto con las
+# cuentas activas de arriba, en el mismo PDF.
+RACCT_PREFIX_DESCUENTOS = "000401"
+
+# Catálogo RBUKRS -> nombre comercial, confirmado contra el árbol de SAP y validado
+# específicamente para este reporte (13-14 de 17 sociedades exactas contra el Excel
+# de finanzas en 2022 y 2023). No se usa fetch_sociedades/dm_company aquí porque ese
+# catálogo trae nombres en mayúsculas y a veces truncados (BUTXT a 25 caracteres).
+SOCIEDADES = {
+    "ABP": "Alimentos Balanceados Proan",
+    "AME": "Avibel de México",
+    "BAG": "Bio Agrofert",
+    "CCP": "CCP Productos",
+    "DBC": "Distribuidora de Básicos",
+    "GSI": "Granos y Servicios Integrales",
+    "HEGP": "Pedro Pastor Hernández Guerrero",
+    "ISE": "Integradora de Servicios",
+    "MAL": "Maxim Alimentos",
+    "MPE": "Maka Pet",
+    "PAL": "Panovo Alimentaria",
+    "PAN": "Proteína Animal",
+    "PAT": "Procesadora de Aves",
+    "PFO": "Panita Foods",
+    "PRA": "Proan Alimentos",
+    "ROMM": "Romo Muñoz Manuel",
+    "SAP": "Servicios y Alimentos Proteínicos",
+    "FAG": "Ferma Agropecuaria",
+    "PIN": "Sociedad no identificada (PIN)",  # importe residual histórico, revisar si sigue activa
+}
+# Nota: el código real de "Superdoña Comercial" (aparece en el Excel de finanzas) no se
+# ha podido confirmar contra RBUKRS. No inventar un código; añadir aquí cuando se identifique.
 
 # Paleta validada con scripts/validate_palette.js (skill dataviz) contra el fondo claro #fcfcfb.
 # Sustituir aquí si Proan tiene hex de marca oficiales distintos.
@@ -49,6 +83,16 @@ FONT_REGULAR_TTF = r"C:\Windows\Fonts\segoeui.ttf"
 FONT_BOLD_TTF = r"C:\Windows\Fonts\segoeuib.ttf"
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
+
+# --- Envío de correo ---------------------------------------------------------------
+EMAIL_DESTINATARIO_DEFAULT = "luciaggx4@gmail.com"
+EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
+EMAIL_CUERPO_TEMPLATE = (
+    "Hola Luis Enrique,\n\n"
+    "Adjunto el reporte diario de cuentas contables PROAN correspondiente al {fecha}, "
+    "con las secciones de Gastos no Deducibles y Descuentos y Bonificaciones.\n\n"
+    "Saludos."
+)
 
 # Si |anterior| es menor a esto, el % de variación se considera no significativo
 # (base casi cero produce porcentajes absurdos, ej. -18,725,722,200%) y se muestra "N/A".

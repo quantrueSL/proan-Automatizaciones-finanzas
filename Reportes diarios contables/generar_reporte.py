@@ -12,10 +12,10 @@ import datetime
 
 from google.cloud import bigquery
 
-from config import PROJECT_ID, CUENTAS, CUENTAS_ACTIVAS, OUTPUT_DIR
-from datos import fetch_cuenta, fetch_sociedades
-from graficos import build_chart
-from pdf import build_section, build_pdf
+from config import PROJECT_ID, CUENTAS, CUENTAS_ACTIVAS, OUTPUT_DIR, SOCIEDADES
+from datos import fetch_cuenta, fetch_sociedades, fetch_descuentos
+from graficos import build_chart, build_chart_descuentos
+from pdf import build_section, build_pdf, build_section_descuentos
 
 
 def main():
@@ -46,6 +46,19 @@ def main():
         sections.append(
             build_section(nombre_cuenta, raccts, df, chart_path, fecha_str, current_year, prior_year)
         )
+
+    print("--- Descuentos y Bonificaciones (RACCT 000401%) ---")
+    sql_desc, df_desc = fetch_descuentos(client, current_year, prior_year, SOCIEDADES)
+    print(sql_desc)
+    print(df_desc[["sociedad", "nombre_sociedad", "ingresos_anterior", "ingresos_actual",
+                    "descuentos_anterior", "descuentos_actual", "pct_anterior", "pct_actual"]]
+          .to_string(index=False))
+
+    chart_path_desc = os.path.join(OUTPUT_DIR, "_chart_Descuentos_y_Bonificaciones.png")
+    build_chart_descuentos(df_desc, current_year, prior_year, chart_path_desc)
+    sections.append(
+        build_section_descuentos(df_desc, chart_path_desc, fecha_str, current_year, prior_year)
+    )
 
     output_path = os.path.join(OUTPUT_DIR, f"reporte_cuentas_proan_{hoy.isoformat()}.pdf")
     build_pdf(sections, output_path)
