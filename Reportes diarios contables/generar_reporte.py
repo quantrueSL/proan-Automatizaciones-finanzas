@@ -15,7 +15,7 @@ from google.cloud import bigquery
 from config import PROJECT_ID, CUENTAS, CUENTAS_ACTIVAS, OUTPUT_DIR, SOCIEDADES
 from datos import fetch_cuenta, fetch_sociedades, fetch_descuentos
 from graficos import build_chart, build_chart_descuentos
-from pdf import build_section, build_pdf, build_section_descuentos
+from pdf import build_section, build_pdf, build_section_descuentos, build_section_precios
 
 
 def main():
@@ -58,6 +58,26 @@ def main():
     build_chart_descuentos(df_desc, current_year, prior_year, chart_path_desc)
     sections.append(
         build_section_descuentos(df_desc, chart_path_desc, fecha_str, current_year, prior_year)
+    )
+
+    # Variación de Precios: mismo mecanismo genérico que Gastos no Deducibles (fetch_cuenta +
+    # build_chart), pero usa el catálogo SOCIEDADES (no dm_company) y va al final del PDF
+    # (ver nota de validación en config.py: la fuente de verdad de esta cuenta es el árbol
+    # de SAP, no el Excel de finanzas).
+    raccts_precios = CUENTAS["Variación de Precios"]
+    print(f"--- Variación de Precios ({', '.join(raccts_precios)}) ---")
+    sql_precios, df_precios = fetch_cuenta(
+        client, raccts_precios, hist_years, current_year, prior_year, SOCIEDADES
+    )
+    print(sql_precios)
+    print(df_precios[["sociedad", "nombre_sociedad", "anterior", "actual", "diferencia", "pct_variacion"]]
+          .to_string(index=False))
+
+    chart_path_precios = os.path.join(OUTPUT_DIR, "_chart_Variacion_de_Precios.png")
+    build_chart(df_precios, "Variación de Precios", current_year, prior_year, chart_path_precios)
+    sections.append(
+        build_section_precios("Variación de Precios", raccts_precios, df_precios,
+                               chart_path_precios, fecha_str, current_year, prior_year)
     )
 
     output_path = os.path.join(OUTPUT_DIR, f"reporte_cuentas_proan_{hoy.isoformat()}.pdf")

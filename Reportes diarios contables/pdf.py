@@ -309,6 +309,97 @@ def build_section_descuentos(df, chart_path, fecha_str, current_year, prior_year
     return flow
 
 
+def _stat_tiles_precios(total_actual, total_anterior, current_year, prior_year):
+    """3 cards (no 4): esta cuenta no usa % de variación en su reporte de referencia
+    (ver _tabla_precios). Dif. = anterior - actual, convención propia de este reporte."""
+    diferencia = total_anterior - total_actual
+
+    tile_w, tile_h, gap = 58 * mm, 22 * mm, 2 * mm
+    tiles_data = [
+        (f"Total {prior_year}", _money(total_anterior), C["text_primary"], C["header_bg"]),
+        (f"Total {current_year} (hoy)", _money(total_actual), C["text_primary"], C["header_bg"]),
+        ("Diferencia global", _money(diferencia), _signo_color(diferencia), _signo_color(diferencia)),
+    ]
+    tiles = [StatTile(tile_w, tile_h, label, value, color, accent)
+             for label, value, color, accent in tiles_data]
+    tbl = Table([tiles], colWidths=[tile_w] * 3, rowHeights=[tile_h])
+    tbl.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), gap),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
+def _tabla_precios(df, current_year, prior_year):
+    """Reproduce el formato del reporte de finanzas "Variación de precios": Empresa /
+    Año anterior / Año actual / Dif., SIN columna de % (a diferencia de _tabla_sociedades).
+    Dif. = Año anterior - Año actual: convención propia de este reporte, invertida respecto
+    al resto (donde diferencia = actual - anterior). Empresa usa Paragraph porque el
+    catálogo SOCIEDADES trae nombres completos más largos que los truncados de dm_company."""
+    header = ["Empresa", f"{prior_year}", f"{current_year} (HOY)", "Dif."]
+    rows = [[_p(header[0], _STYLE_TH_LEFT), header[1], header[2], header[3]]]
+
+    df = df.copy()
+    df["dif_mostrada"] = df["anterior"] - df["actual"]
+    df_ordenado = df.sort_values("actual", ascending=False, key=abs)
+    for _, r in df_ordenado.iterrows():
+        rows.append([_p(r["nombre_sociedad"], _STYLE_TD_LEFT), _money(r["anterior"]),
+                     _money(r["actual"]), _money(r["dif_mostrada"])])
+
+    total_actual = df["actual"].sum()
+    total_anterior = df["anterior"].sum()
+    total_dif = total_anterior - total_actual
+    rows.append([_p("TOTAL GENERAL", _STYLE_TD_BOLD_LEFT), _money(total_anterior),
+                 _money(total_actual), _money(total_dif)])
+
+    n_rows = len(rows)
+    tbl = Table(rows, colWidths=[62 * mm, 39 * mm, 39 * mm, 40 * mm], repeatRows=1)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), C["header_bg"]),
+        ("TEXTCOLOR", (1, 0), (-1, 0), rl_colors.white),
+        ("FONTNAME", (1, 0), (-1, 0), FONT_BOLD),
+        ("FONTNAME", (1, 1), (-1, -2), FONT_REGULAR),
+        ("FONTNAME", (1, -1), (-1, -1), FONT_BOLD),
+        ("FONTSIZE", (1, 0), (-1, -1), 8),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("LINEBELOW", (0, 0), (-1, 0), 0, rl_colors.white),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.4, C["grid"]),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.8, C["text_primary"]),
+        ("BACKGROUND", (0, -1), (-1, -1), C["tile_bg"]),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("TOPPADDING", (0, -1), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]
+    # Franjas alternadas (excepto encabezado y fila de total) para lectura más fácil.
+    for i in range(1, n_rows - 1):
+        if i % 2 == 0:
+            style.append(("BACKGROUND", (0, i), (-1, i), C["tile_bg"]))
+    # Semáforo rojo/verde en Dif., por fila y en el total.
+    for i, r in df_ordenado.reset_index().iterrows():
+        style.append(("TEXTCOLOR", (3, i + 1), (3, i + 1), _signo_color(r["dif_mostrada"])))
+    style.append(("TEXTCOLOR", (3, n_rows - 1), (3, n_rows - 1), _signo_color(total_dif)))
+    tbl.setStyle(TableStyle(style))
+    return tbl
+
+
+def build_section_precios(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year, prior_year):
+    flow = []
+    flow.extend(_header(cuenta_nombre, raccts, fecha_str))
+    flow.append(Spacer(1, 7))
+    flow.append(_stat_tiles_precios(df["actual"].sum(), df["anterior"].sum(), current_year, prior_year))
+    flow.append(Spacer(1, 8))
+    flow.append(Image(chart_path, width=180 * mm, height=68 * mm))
+    flow.append(Spacer(1, 8))
+    flow.append(_tabla_precios(df, current_year, prior_year))
+    return flow
+
+
 def build_pdf(sections, output_path):
     """sections: lista de listas de flowables ya construidas por build_section."""
     doc = SimpleDocTemplate(

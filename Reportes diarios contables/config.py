@@ -25,6 +25,30 @@ CUENTAS_ACTIVAS = ["Gastos no Deducibles"]
 # ejecución desde D20_DIMENSION.dm_company (ver datos.fetch_sociedades). SKAT es el
 # catálogo de cuentas contables, no de sociedades, así que no aplica para esto.
 
+# --- Variación de Precios ----------------------------------------------------------
+# Usa el mismo mecanismo genérico que Gastos no Deducibles (fetch_cuenta: neto directo,
+# sin ajustar signo por DRCRK), cuenta 0005010632 (ya en CUENTAS de arriba). No se agregó
+# a CUENTAS_ACTIVAS: generar_reporte.py y enviar_reporte.py la insertan explícitamente
+# al final (después de Descuentos y Bonificaciones) para mantener el orden de secciones
+# Gastos no Deducibles -> Descuentos y Bonificaciones -> Variación de Precios. A diferencia
+# de Gastos no Deducibles, usa el catálogo SOCIEDADES de abajo (no fetch_sociedades/
+# dm_company) para el nombre de empresa, por instrucción explícita del usuario.
+#
+# Validación: a diferencia de Gastos no Deducibles y Descuentos (validados contra el Excel
+# de finanzas), el Excel de "Variación de precios" de finanzas NO es fiable para esta cuenta:
+# hay sociedades exactas (PAT, MPE) y otras a cientos de millones de distancia o con signo
+# contrario (GSI, PAN, AME), sin un patrón explicable por fecha de corte. La fuente de verdad
+# validada es el árbol nativo de SAP ("Estado financiero Pérdidas y ganancias", columna
+# TotPerComp/TotPerInf), donde esta fórmula coincidió al centavo en las 17 sociedades para
+# el año cerrado 2023. Si hace falta re-validar esta cuenta, comparar contra ese árbol de
+# SAP, no contra el Excel de finanzas.
+#
+# Limitación conocida (sin confirmar del todo): hay indicios de que esta cuenta podría
+# reclasificarse/sanearse en el cierre anual, lo que podría hacer que el saldo del año en
+# curso baje o llegue a cero después del cierre. No afecta al reporte diario en producción
+# (que siempre mira el año aún no cerrado), pero si se detectan saltos raros en la columna
+# "año actual" al pasar de un año a otro, revisar este comportamiento antes de asumir un bug.
+
 # --- Descuentos y Bonificaciones -------------------------------------------------
 # No usa CUENTAS/CUENTAS_ACTIVAS: en vez de una lista fija de RACCT, cubre un RANGO
 # de cuentas de Ventas y clasifica cada cuenta como Ingreso o Descuento según el signo
@@ -90,7 +114,8 @@ EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
 EMAIL_CUERPO_TEMPLATE = (
     "Hola Luis Enrique,\n\n"
     "Adjunto el reporte diario de cuentas contables PROAN correspondiente al {fecha}, "
-    "con las secciones de Gastos no Deducibles y Descuentos y Bonificaciones.\n\n"
+    "con las secciones de Gastos no Deducibles, Descuentos y Bonificaciones y Variación "
+    "de Precios.\n\n"
     "Saludos."
 )
 
