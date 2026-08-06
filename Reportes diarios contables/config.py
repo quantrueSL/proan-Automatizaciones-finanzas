@@ -1,5 +1,9 @@
 """Configuración del reporte diario de cuentas contables PROAN."""
 
+import os
+
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 PROJECT_ID = "proan-quantrue"
 TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
 
@@ -49,10 +53,16 @@ CUENTAS = {
     "Gastos no Deducibles": ["0005020000"],
 }
 
-# Solo se generan las cuentas listadas aquí. El usuario pidió limitarse a
-# "Gastos no Deducibles" por ahora porque es la única consulta 100% corroborada;
-# las demás se activan a medida que se validen sus queries.
-CUENTAS_ACTIVAS = ["Gastos no Deducibles"]
+# Solo se generan las cuentas listadas aquí; las demás se activan a medida que se validen
+# sus queries. Mermas (0005010628) se activó como "Plantilla A" (cuenta única, igual
+# formato que Gastos no Deducibles) -- se abandonó el reporte de razón Mermas/Costo Total
+# porque nunca se logró confirmar con certeza qué cuentas conforman "Costo Total" (varias
+# hipótesis probadas, ninguna validada). Mejor un dato de Mermas solo, correcto y
+# validable, que un % apoyado en un denominador no confirmado. Si en el futuro se
+# confirma el denominador, se puede agregar esa razón como reporte aparte -- no reemplaza
+# a este. Igual que Gastos no Deducibles: dígito 5 (egresos), sin ABS(), tabla viva (mismo
+# criterio que el resto -- ver nota de snapshot pendiente más abajo).
+CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Mermas"]
 
 # El mapeo RBUKRS -> nombre de sociedad ya NO se hardcodea aquí: se carga en tiempo de
 # ejecución desde D20_DIMENSION.dm_company (ver datos.fetch_sociedades). SKAT es el
@@ -118,27 +128,66 @@ SOCIEDADES = {
 # Nota: el código real de "Superdoña Comercial" (aparece en el Excel de finanzas) no se
 # ha podido confirmar contra RBUKRS. No inventar un código; añadir aquí cuando se identifique.
 
-# Paleta validada con scripts/validate_palette.js (skill dataviz) contra el fondo claro #fcfcfb.
-# Sustituir aquí si Proan tiene hex de marca oficiales distintos.
+# Paleta "navy" (2026-08, v2 -- reemplaza la "firma dorada" anterior por pedido explícito del
+# usuario de un tema monocromático azul marino), validada con scripts/validate_palette.js
+# (skill dataviz) contra fondo blanco puro #FFFFFF. Sustituir aquí si Proan tiene hex de marca
+# oficiales distintos. Notas de validación:
+# - actual/anterior (barras): separación CVD ΔE ~43 (protan/tritan), muy por encima del piso
+#   de 6-8 -- el contraste de luminosidad (navy profundo vs. azul grisáceo claro) es enorme,
+#   así que se distinguen bien incluso para daltonismo. El validador marca "chroma floor" y
+#   "lightness band" como FAIL, pero esos checks asumen dos colores igual de vívidos para
+#   codificar identidad (categórico); aquí es intencional que uno sea oscuro sólido y el otro
+#   claro/neutro (jerarquía "periodo actual" vs. "periodo anterior", no dos identidades pares).
+# - good/critical (semáforo verde/rojo, sin cambios respecto a la paleta dorada): la separación
+#   CVD da ΔE 5.8, por debajo del piso de 6.0 -- limitación conocida e inherente al par
+#   rojo/verde en sí. Mitigado con signo explícito en texto + barra lateral por fila (ver
+#   pdf._tabla_sociedades), nunca color solo.
+# - pct_line (línea de % variación): antes reutilizaba "critical" (rojo) -- se separó en su
+#   propio token porque un color de serie de datos no debe doblar como color de estado
+#   (good/critical quedan reservados para signo, nunca para identidad de serie).
 COLORS = {
-    "header_bg": "#0d2a4a",       # banda de encabezado (chrome, no dato)
-    "header_accent": "#d03b3b",   # franja roja bajo el encabezado
-    "actual": "#184F95",          # serie "periodo actual" (validado)
-    "anterior": "#5598E7",        # serie "periodo anterior" (validado)
-    "good": "#0ca30c",            # variación positiva (verde)
-    "critical": "#d03b3b",        # variación negativa (rojo)
+    "header_bg": "#0d2a4a",       # banda de encabezado (chrome, no dato) -- sin cambios
+    "header_accent": "#184F95",   # navy medio: borde superior de tarjetas KPI + línea bajo
+                                   # el header (antes dorado #B8860B; el usuario pidió tema
+                                   # monocromático navy, sin acento dorado)
+    "actual": "#0d2a4a",          # barra "periodo actual/hoy": navy profundo (antes #184F95,
+                                   # ese tono pasó a pct_line)
+    "anterior": "#8CA5C4",        # barra "periodo anterior": azul grisáceo claro (antes #4E7AB5)
+    "pct_line": "#184F95",        # línea de % variación + círculos "N/A" + anotaciones de
+                                   # recorte en el gráfico: navy medio (antes "critical"/rojo)
+    "good": "#1B7F4C",            # verde tinta contable -- sin cambios
+    "critical": "#B3261E",        # rojo sobrio -- sin cambios; reservado para signo, ya no
+                                   # se usa para la línea del gráfico (ver pct_line)
     "text_primary": "#0b0b0b",
-    "text_secondary": "#52514e",
-    "muted": "#898781",
-    "grid": "#e1e0d9",
-    "surface": "#fcfcfb",
-    "tile_bg": "#f5f7fa",
+    "text_secondary": "#3F4550",  # gris grafito, frío
+    "muted": "#6B7280",           # gris grafito claro, frío
+    "grid": "#EDEEF1",            # línea guía horizontal muy tenue
+    "surface": "#FFFFFF",         # blanco puro -- fondo de página, sin cambios
+    "tile_bg": "#F5F7FA",         # tinte sutil navy: filas alternas de tabla, relleno de
+                                   # tarjetas KPI y panel del gráfico (antes blanco/gris parejo)
+    "kpi_border": "#C9D6E5",      # borde fino de las tarjetas KPI, tinte navy (antes gris
+                                   # neutro #E2E5EA)
 }
 
-# Fuente para un look más moderno. Se registra desde C:\Windows\Fonts si existe;
-# si no, pdf.py hace fallback a Helvetica automáticamente.
-FONT_REGULAR_TTF = r"C:\Windows\Fonts\segoeui.ttf"
-FONT_BOLD_TTF = r"C:\Windows\Fonts\segoeuib.ttf"
+# Fuentes: familia IBM Plex completa, embebida en el PDF (carpeta fonts/, con su LICENSE.txt
+# de IBM y la OFL.txt de Google Fonts -- ambas son la misma licencia SIL Open Font License,
+# solo se descargaron de fuentes distintas, ver nota abajo). Al embeber el TTF en el PDF, se
+# ve igual en cualquier sistema operativo, no depende de qué fuentes tenga instaladas quien
+# lo abra (a diferencia de Segoe UI, que solo está en Windows).
+# - IBM Plex Sans (Regular/Bold): títulos, encabezados y cuerpo. Primer intento fue bajarla
+#   del mirror de Google Fonts en GitHub (google/fonts), pero ahí solo está como variable
+#   font (un archivo con eje de peso, sin instances estáticos) -- ReportLab no puede
+#   seleccionar "Bold" de una variable font. Se consiguió en su forma estática correcta
+#   desde el repo OFICIAL de IBM (github.com/IBM/plex, packages/plex-sans/fonts/complete/ttf).
+# - IBM Plex Mono (Regular/Bold): cifras de tarjetas KPI y columnas numéricas de tabla --
+#   monoespaciada, alinea decimales de forma natural, look "dashboard". Esta sí estaba
+#   disponible como estática en el mirror de Google Fonts, se dejó de ahí.
+# Fallback: si por lo que sea faltan los archivos, pdf.py cae a Helvetica/Courier (siempre
+# disponibles en ReportLab) en vez de romper.
+FONT_REGULAR_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexSans-Regular.ttf")
+FONT_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexSans-Bold.ttf")
+FONT_MONO_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Regular.ttf")
+FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
 
