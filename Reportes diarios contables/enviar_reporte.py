@@ -33,8 +33,8 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 
 from config import (
-    COLORS, CUENTAS, CUENTAS_ACTIVAS, EMAIL_ASUNTO_TEMPLATE, EMAIL_CUERPO_TEMPLATE,
-    EMAIL_DESTINATARIO_DEFAULT, OUTPUT_DIR, PROJECT_ID, SOCIEDADES,
+    COLORS, CUENTAS, CUENTAS_ACTIVAS, CUENTAS_SOLO_DEBE, EMAIL_ASUNTO_TEMPLATE,
+    EMAIL_CUERPO_TEMPLATE, EMAIL_DESTINATARIO_DEFAULT, OUTPUT_DIR, PROJECT_ID, SOCIEDADES,
 )
 from datos import fetch_cuenta, fetch_descuentos, fetch_sociedades
 from graficos import build_chart, build_chart_descuentos
@@ -70,7 +70,8 @@ def _preparar_resumenes(client, hoy):
     secciones = []
     for nombre_cuenta in CUENTAS_ACTIVAS:
         raccts = CUENTAS[nombre_cuenta]
-        _, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades)
+        _, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades,
+                              solo_debe=nombre_cuenta in CUENTAS_SOLO_DEBE)
 
         chart_path = os.path.join(OUTPUT_DIR, f"_chart_{nombre_cuenta.replace(' ', '_')}.png")
         build_chart(df, nombre_cuenta, current_year, prior_year, chart_path)

@@ -14,15 +14,28 @@ _HSL_COLS = ["HSLVT_BalanceCarriedForwardLocalCurrency"] + [
 _HSL_SUM_EXPR = " + ".join(_HSL_COLS)
 
 
-def build_query(raccts, years):
+def build_query(raccts, years, solo_debe=False):
     """Misma estructura que el query de referencia del usuario (SUM CASE WHEN por año),
-    generalizada a N cuentas y N años."""
+    generalizada a N cuentas y N años.
+
+    solo_debe: si True, agrega `AND DRCRK_DebitCreditIndicator = 'S'` -- filtra solo los
+    movimientos de Debe (Soll), excluyendo Haber (H). Es una excepción puntual a la fórmula
+    neta de siempre: se descubrió con datos reales de Mermas (0005010628) que esa cuenta
+    recibe reclasificaciones/correcciones en Haber que casi cancelan el Debe original (ej.
+    Proteína Animal 2025: Debe $274,816,762 vs. Haber -$274,759,261 -> neto solo $57,501;
+    en DBC/HEGP/PAL/SAP el Debe y el Haber son EXACTAMENTE iguales -> neto $0, aunque hubo
+    varios millones de mermas reales). El proceso manual de referencia (FS10N, "sumo las
+    columnas del Debe") nunca resta el Haber -- por eso el reporte automático neto y el
+    manual daban números completamente distintos, no por redondeo. No se aplica a las demás
+    cuentas (Gastos no Deducibles, Variación de Precios): esas sí se validaron con la
+    fórmula neta contra Excel/árbol de SAP, cambiarles esto rompería esa validación."""
     year_cases = ",\n".join(
         f"  SUM(CASE WHEN RYEAR_FiscalYear = {y} THEN {_HSL_SUM_EXPR} ELSE 0 END) AS total_{y}"
         for y in years
     )
     raccts_list = ", ".join(f"'{r}'" for r in raccts)
     years_list = ", ".join(str(y) for y in years)
+    filtro_debe = "\n  AND DRCRK_DebitCreditIndicator = 'S'" if solo_debe else ""
     return f"""
 SELECT
   RBUKRS_CompanyCode AS sociedad,
@@ -32,7 +45,7 @@ WHERE RACCT_AccountNumber IN ({raccts_list})
   AND RYEAR_FiscalYear IN ({years_list})
   AND RLDNR_LedgerInGLAccounting = '{LEDGER}'
   AND RRCTY_RecordType = '{RECORD_TYPE}'
-  AND RVERS_Version = '{VERSION}'
+  AND RVERS_Version = '{VERSION}'{filtro_debe}
 GROUP BY sociedad
 ORDER BY sociedad
 """
@@ -47,10 +60,13 @@ def fetch_sociedades(client: bigquery.Client):
     return dict(zip(df["company_code"], df["company_name"].str.title()))
 
 
-def fetch_cuenta(client: bigquery.Client, raccts, years, current_year, prior_year, sociedades):
+def fetch_cuenta(client: bigquery.Client, raccts, years, current_year, prior_year, sociedades,
+                  solo_debe=False):
     """Ejecuta la consulta y devuelve un DataFrame con: sociedad, nombre_sociedad,
-    total_<year> por cada año pedido, diferencia y % variación (actual vs anterior)."""
-    sql = build_query(raccts, years)
+    total_<year> por cada año pedido, diferencia y % variación (actual vs anterior).
+
+    solo_debe: ver build_query -- excepción puntual para Mermas."""
+    sql = build_query(raccts, years, solo_debe=solo_debe)
     df = client.query(sql).to_dataframe()
 
     for y in years:

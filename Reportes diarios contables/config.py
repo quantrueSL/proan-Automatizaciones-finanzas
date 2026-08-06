@@ -64,6 +64,23 @@ CUENTAS = {
 # criterio que el resto -- ver nota de snapshot pendiente más abajo).
 CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Mermas"]
 
+# Cuentas que deben sumarse SOLO Debe (DRCRK='S'), no neto Debe-Haber (ver datos.build_query).
+# Confirmado con datos reales (2026-08) para Mermas (0005010628): esta cuenta recibe
+# reclasificaciones/correcciones en Haber que casi cancelan el Debe original -- ej. Proteína
+# Animal 2025: Debe $274,816,762 vs. Haber -$274,759,261 -> neto solo $57,501; en
+# DBC/HEGP/PAL/SAP el Debe y el Haber son EXACTAMENTE iguales -> neto $0 pese a haber varios
+# millones de mermas reales. Es la causa real de los % disparatados (+57,573% etc.) del
+# primer PDF de Mermas: no es que las mermas hayan crecido tanto, es que "anterior" (neto)
+# estaba mal calculado -- le faltaba casi todo el Debe real. El proceso manual de referencia
+# (FS10N, "sumo las columnas del Debe") nunca resta el Haber, por eso daba números
+# completamente distintos al reporte automático -- no por redondeo, sino porque se estaban
+# calculando cosas diferentes. No se aplica a Gastos no Deducibles ni Variación de Precios:
+# esas sí se validaron con la fórmula neta contra Excel/árbol de SAP -- cambiarles esto
+# rompería esa validación. Si en el futuro se ve un patrón raro similar en Variación de
+# Precios (ver su nota de "reclasificación en cierre" más abajo), vale la pena revisar si es
+# el mismo fenómeno -- pero no se asuma sin repetir esta misma verificación con datos reales.
+CUENTAS_SOLO_DEBE = {"Mermas"}
+
 # El mapeo RBUKRS -> nombre de sociedad ya NO se hardcodea aquí: se carga en tiempo de
 # ejecución desde D20_DIMENSION.dm_company (ver datos.fetch_sociedades). SKAT es el
 # catálogo de cuentas contables, no de sociedades, así que no aplica para esto.

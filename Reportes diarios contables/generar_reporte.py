@@ -12,7 +12,7 @@ import datetime
 
 from google.cloud import bigquery
 
-from config import PROJECT_ID, CUENTAS, CUENTAS_ACTIVAS, OUTPUT_DIR, SOCIEDADES
+from config import PROJECT_ID, CUENTAS, CUENTAS_ACTIVAS, CUENTAS_SOLO_DEBE, OUTPUT_DIR, SOCIEDADES
 from datos import fetch_cuenta, fetch_sociedades, fetch_descuentos
 from graficos import build_chart, build_chart_descuentos
 from pdf import build_section, build_pdf, build_section_descuentos
@@ -34,8 +34,10 @@ def main():
     sections = []
     for nombre_cuenta in CUENTAS_ACTIVAS:
         raccts = CUENTAS[nombre_cuenta]
-        print(f"--- {nombre_cuenta} ({', '.join(raccts)}) ---")
-        sql, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades)
+        solo_debe = nombre_cuenta in CUENTAS_SOLO_DEBE
+        print(f"--- {nombre_cuenta} ({', '.join(raccts)}){' [solo Debe]' if solo_debe else ''} ---")
+        sql, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades,
+                                solo_debe=solo_debe)
         print(sql)
         print(df[["sociedad", "nombre_sociedad", "anterior", "actual", "diferencia", "pct_variacion"]]
               .to_string(index=False))
