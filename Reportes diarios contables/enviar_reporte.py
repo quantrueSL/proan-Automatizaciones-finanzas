@@ -118,13 +118,14 @@ def _preparar_resumenes(client, hoy):
 
     total_actual_precios = df_precios["actual"].sum()
     total_anterior_precios = df_precios["anterior"].sum()
-    diferencia_precios = total_anterior_precios - total_actual_precios
+    # Mismo patrón de cards que Gastos no Deducibles (formato único): diferencia = actual - anterior.
+    diferencia_precios = total_actual_precios - total_anterior_precios
     secciones.append({
         "titulo": "Variación de Precios",
         "cards": [
-            (f"Total {prior_year}", _money(total_anterior_precios), COLORS["header_bg"]),
             (f"Total {current_year} (hoy)", _money(total_actual_precios), COLORS["header_bg"]),
-            ("Diferencia global", _money(diferencia_precios), _color_por_signo(diferencia_precios)),
+            (f"Total {prior_year}", _money(total_anterior_precios), COLORS["header_bg"]),
+            ("Diferencia total", _money(diferencia_precios), _color_por_signo(diferencia_precios)),
         ],
         "chart_path": chart_path_precios,
         "cid": "grafico_variacion_de_precios",

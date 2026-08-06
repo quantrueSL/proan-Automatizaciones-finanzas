@@ -4,9 +4,42 @@ PROJECT_ID = "proan-quantrue"
 TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
 
 # Filtros fijos usados en la consulta validada por el usuario para Gastos no Deducibles.
+# Verificado en BigQuery (2026-08): las 417,443 filas de sap_faglflext tienen exactamente
+# esta combinación (0L / 0 / 001) -- la tabla no trae otra, así que estos filtros son
+# redundantes hoy. Se dejan de todos modos por seguridad ante un cambio futuro de datos.
 LEDGER = "0L"
 RECORD_TYPE = "0"
 VERSION = "001"
+
+# --- Formato único de reporte por cuenta contable (dashboard) ----------------------
+# Estándar visual para TODOS los reportes de cuenta única (Gastos no Deducibles, Mermas,
+# Variación de Precios): banner + 4 KPI tiles + gráfico combinado (barras + % variación) +
+# tabla Sociedad/actual/anterior/Diferencias/%Variac. Referencia:
+# "reporte-cuentas-actual.png" (fuera del repo, en Reportes documentos/), prototipo
+# "Reporte Pasivo Temporal". Implementado en pdf.py (_header, _stat_tiles, _tabla_sociedades,
+# build_section) y reutilizado por todas las cuentas de este tipo -- NO hay funciones
+# especiales por cuenta (el formato "Empresa/Año ant/Año actual/Dif" que se probó para
+# Variación de Precios quedó retirado). Descuentos y Bonificaciones sigue con su propio
+# mecanismo (rango + clasificación por signo, ver más abajo) porque su naturaleza es
+# distinta (no es una sola cuenta de mayor) y el usuario pidió no tocarlo.
+#
+# Convención de % cuando el periodo base (normalmente "anterior") es ~0 (por debajo de
+# UMBRAL_MATERIALIDAD_MXN): en vez de "N/A" se muestra +100.00%/-100.00% (ver
+# pdf._pct_o_100). No hay división por cero real que reportar como N/A -- simplemente no
+# había base el periodo anterior.
+#
+# Snapshot para "periodo anterior" (último cierre): PENDIENTE. Se confirmó que
+# D10_POSTPROCESSING solo tiene snapshots diarios sap_faglflext2_YYYYMMDD desde 2026-05-06
+# en adelante -- no existe ningún snapshot del cierre de 2024 ni de 2025 (la tabla de
+# snapshots se empezó a llenar después de que ambos cierres ya habían pasado). Por decisión
+# del usuario, mientras tanto "anterior" se sigue calculando desde la tabla viva
+# sap_faglflext (mismo mecanismo de siempre, fetch_cuenta), con el riesgo ya documentado de
+# reclasificación de ejercicios cerrados (ver nota de Variación de Precios). Corregir esto
+# usando un snapshot real en cuanto exista uno tomado en un cierre (el próximo: dic. 2026).
+#
+# Ninguno de estos reportes está validado contra SAP en vivo todavía más allá de lo ya
+# documentado por cuenta abajo -- toda validación adicional hasta ahora es autoconsistencia
+# interna de BigQuery. No marcar ningún reporte como "confirmado" sin ese cruce.
 
 # Cuentas contables. Editable: para agregar una cuenta nueva basta con añadir una
 # entrada aquí (nombre -> lista de RACCT). No se necesita tocar el resto del código.
@@ -27,12 +60,13 @@ CUENTAS_ACTIVAS = ["Gastos no Deducibles"]
 
 # --- Variación de Precios ----------------------------------------------------------
 # Usa el mismo mecanismo genérico que Gastos no Deducibles (fetch_cuenta: neto directo,
-# sin ajustar signo por DRCRK), cuenta 0005010632 (ya en CUENTAS de arriba). No se agregó
-# a CUENTAS_ACTIVAS: generar_reporte.py y enviar_reporte.py la insertan explícitamente
-# al final (después de Descuentos y Bonificaciones) para mantener el orden de secciones
-# Gastos no Deducibles -> Descuentos y Bonificaciones -> Variación de Precios. A diferencia
-# de Gastos no Deducibles, usa el catálogo SOCIEDADES de abajo (no fetch_sociedades/
-# dm_company) para el nombre de empresa, por instrucción explícita del usuario.
+# sin ajustar signo por DRCRK) y el mismo formato único de reporte (build_section, ver
+# arriba) -- cuenta 0005010632 (ya en CUENTAS de arriba). No se agregó a CUENTAS_ACTIVAS:
+# generar_reporte.py y enviar_reporte.py la insertan explícitamente al final (después de
+# Descuentos y Bonificaciones) para mantener el orden de secciones Gastos no Deducibles ->
+# Descuentos y Bonificaciones -> Variación de Precios. A diferencia de Gastos no Deducibles,
+# usa el catálogo SOCIEDADES de abajo (no fetch_sociedades/dm_company) para el nombre de
+# empresa, por instrucción explícita del usuario.
 #
 # Validación: a diferencia de Gastos no Deducibles y Descuentos (validados contra el Excel
 # de finanzas), el Excel de "Variación de precios" de finanzas NO es fiable para esta cuenta:
@@ -119,8 +153,14 @@ EMAIL_CUERPO_TEMPLATE = (
     "Saludos."
 )
 
-# Si |anterior| es menor a esto, el % de variación se considera no significativo
-# (base casi cero produce porcentajes absurdos, ej. -18,725,722,200%) y se muestra "N/A".
+# Doble uso:
+# 1) Filtro de fila (datos.fetch_cuenta): una sociedad sin actividad material ni en el
+#    periodo actual ni en el anterior (por debajo de este umbral en ambos) no aparece en
+#    el reporte del día.
+# 2) Base para el % de variación (pdf._pct_o_100): si |anterior| está por debajo de este
+#    umbral, la división produciría un % absurdo (ej. -18,725,722,200%) o directamente no
+#    hay base -- en ese caso se muestra +100.00%/-100.00% en vez de calcularlo (ver nota
+#    de "Formato único" arriba). Ya NO se muestra "N/A" en la tabla/tarjetas por esta causa.
 UMBRAL_MATERIALIDAD_MXN = 1000
 
 OUTPUT_DIR = r"C:\Users\Lucia\proan_reporte_diario\salidas"
