@@ -1,0 +1,8 @@
+google-cloud-bigquery
+db-dtypes
+pandas
+matplotlib
+numpy
+reportlab
+python-dotenv
+sendgrid==6.11.0
