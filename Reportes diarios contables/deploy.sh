@@ -85,14 +85,25 @@ gcloud run jobs deploy "${JOB_NAME}" \
   --task-timeout 900 \
   --max-retries 1
 
-# Ojo: no metas comentarios entre las lineas de este comando. Cada linea acaba en \
-# para continuar, y un # en medio corta el comando ahi y despliega con la mitad de las
-# variables sin avisar.
+# Se arma un archivo YAML temporal en vez de pasar "--update-env-vars OUTPUT_DIR=/tmp/..."
+# inline: en Git Bash (Windows), cualquier argumento de linea de comandos que parezca una
+# ruta POSIX (empieza con /) se "traduce" automaticamente a una ruta de Windows antes de
+# llegar a gcloud -- paso una vez sin avisar y el Job quedo con OUTPUT_DIR apuntando a una
+# ruta de Windows que no existe en el contenedor Linux. Un archivo no sufre esa conversion.
+ENV_VARS_FILE="$(mktemp)"
+trap 'rm -f "${ENV_VARS_FILE}"' EXIT
+cat > "${ENV_VARS_FILE}" <<EOF
+REPORTE_EMAIL_TO: ${REPORTE_EMAIL_TO_VALUE}
+SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}
+SENDGRID_API_KEY: ${SENDGRID_API_KEY_VALUE}
+OUTPUT_DIR: /tmp/salidas
+EOF
+
 echo -e "${YELLOW}Configurando variables de entorno del Cloud Run Job...${NC}"
 gcloud run jobs update "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --update-env-vars "^~^REPORTE_EMAIL_TO=${REPORTE_EMAIL_TO_VALUE}~SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@proan.com}~SENDGRID_API_KEY=${SENDGRID_API_KEY_VALUE}~OUTPUT_DIR=/tmp/salidas"
+  --env-vars-file "${ENV_VARS_FILE}"
 
 SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"

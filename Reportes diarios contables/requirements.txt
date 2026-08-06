@@ -1,4 +1,5 @@
 google-cloud-bigquery
+db-dtypes
 pandas
 matplotlib
 numpy
