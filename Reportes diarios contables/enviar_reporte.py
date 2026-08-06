@@ -20,6 +20,9 @@ Uso:
 
 Requiere credenciales de SendGrid en variables de entorno (ver .env.example):
     SENDGRID_API_KEY, SENDGRID_FROM_EMAIL (opcional)
+
+En Cloud Run (ver deploy.sh) el destinatario se controla con la variable de entorno
+REPORTE_EMAIL_TO en vez de --to (el Job no recibe argumentos de línea de comandos).
 """
 
 import argparse
@@ -266,9 +269,13 @@ def enviar_reporte(pdf_path, destinatario, dry_run=False):
 
 
 def main():
+    # REPORTE_EMAIL_TO (Cloud Run, ver deploy.sh) tiene prioridad sobre EMAIL_DESTINATARIO_DEFAULT
+    # (config.py, usado en ejecución local) -- así se puede cambiar el destinatario de producción
+    # sin tocar código ni volver a construir la imagen.
+    destinatario_default = os.environ.get("REPORTE_EMAIL_TO", EMAIL_DESTINATARIO_DEFAULT)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", default=None, help="Ruta al PDF a enviar")
-    parser.add_argument("--to", default=EMAIL_DESTINATARIO_DEFAULT, help="Correo destinatario")
+    parser.add_argument("--to", default=destinatario_default, help="Correo destinatario")
     parser.add_argument("--dry-run", action="store_true",
                          help="No envía el correo; guarda una vista previa del HTML")
     args = parser.parse_args()

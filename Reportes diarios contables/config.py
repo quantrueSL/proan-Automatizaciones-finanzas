@@ -229,4 +229,8 @@ EMAIL_CUERPO_TEMPLATE = (
 #    de "Formato único" arriba). Ya NO se muestra "N/A" en la tabla/tarjetas por esta causa.
 UMBRAL_MATERIALIDAD_MXN = 1000
 
-OUTPUT_DIR = r"C:\Users\Lucia\proan_reporte_diario\salidas"
+# Local (Windows, ejecución manual): carpeta fija de Lucia. Cloud Run (Linux, filesystem de
+# solo lectura salvo /tmp): se sobreescribe con la variable de entorno OUTPUT_DIR=/tmp/salidas
+# (ver deploy.sh) -- el contenedor no tiene "C:\Users\Lucia\..." y tampoco hace falta
+# persistir el PDF entre ejecuciones, /tmp alcanza para generarlo y adjuntarlo al correo.
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\salidas")
