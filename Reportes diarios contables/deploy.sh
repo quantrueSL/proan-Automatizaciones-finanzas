@@ -8,9 +8,8 @@ JOB_NAME="reporte-cuentas-diario"
 SCHEDULER_JOB_NAME="reporte-cuentas-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# PENDIENTE DE CONFIRMAR: horario provisional, lunes a sabado a las 07:15 de Mexico (antes
-# de que el equipo entre), para no chocar con Anticipos (10:00) ni Partidas (10:10). Ajustar
-# si se pide otra hora.
+# Confirmado con el usuario: lunes a sabado a las 07:15 de Mexico (antes de que el equipo
+# entre), para no chocar con Anticipos (10:00) ni Partidas (10:10).
 SCHEDULER_CRON="15 7 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
@@ -43,9 +42,10 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada en .env/export, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-# PENDIENTE DE CONFIRMAR: destinatario real de produccion. Mientras no se confirme el correo
-# de Luis Enrique, el deploy exige pasarlo explicito (REPORTE_EMAIL_TO en .env o exportado)
-# en vez de caer solo en el EMAIL_DESTINATARIO_DEFAULT de config.py (una cuenta de prueba).
+# Confirmado con el usuario: lucigo30@ucm.es (ver .env). El deploy exige pasarlo explicito
+# (REPORTE_EMAIL_TO en .env o exportado) en vez de caer solo en el EMAIL_DESTINATARIO_DEFAULT
+# de config.py (una cuenta de prueba) -- asi un .env sin este valor falla ruidoso, no despliega
+# en silencio con el destinatario equivocado.
 REPORTE_EMAIL_TO_VALUE="$(strip_newlines "${REPORTE_EMAIL_TO:-}")"
 require_value "REPORTE_EMAIL_TO" "${REPORTE_EMAIL_TO_VALUE}"
 echo -e "${GREEN}REPORTE_EMAIL_TO detectada en .env/export: ${REPORTE_EMAIL_TO_VALUE}${NC}"
