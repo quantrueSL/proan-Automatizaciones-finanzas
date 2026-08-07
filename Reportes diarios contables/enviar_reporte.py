@@ -281,7 +281,8 @@ def main():
     args = parser.parse_args()
 
     pdf_path = args.pdf or os.path.join(
-        OUTPUT_DIR, f"reporte_cuentas_proan_{datetime.date.today().isoformat()}.pdf"
+        OUTPUT_DIR, f"reporte_cuentas_proan_{datetime.date.today().isoformat()}
+        .pdf"
     )
 
     enviar_reporte(pdf_path, args.to, dry_run=args.dry_run)
