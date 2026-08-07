@@ -1,15 +1,17 @@
-"""Gráfico de barras horizontales: top 5 sociedades por |Dif.| -- rediseño 2026-08-07 a
-pedido explícito del usuario ("Top 5 sociedades con mayor diferencia" / "Magnitud absoluta
-de la diferencia diaria"). Reemplaza la versión anterior (top 5 por |Estado de Resultados|,
-usada como proxy porque este reporte no calcula ingresos) -- ahora que el propósito del
-gráfico es explícitamente mostrar diferencias, |Dif.| es la métrica correcta y ya no hace
-falta ningún proxy.
+"""Gráfico de barras horizontales: top 5 sociedades por |Estado de Resultados| -- vuelto a
+cambiar el 2026-08-07 (mismo día del rediseño premium) a pedido explícito del usuario:
+"quiero que el gráfico muestre el resultado financiero de las 5 mejores sociedades".
 
-Caso especial: si NINGUNA sociedad tiene |Dif.| > tolerancia (como el 2026-08-07: las 19
-dan Dif.=0.00), no hay nada que rankear -- un gráfico de 5 barras en $0 no comunica nada y
-se ve roto. build_chart_top5() devuelve False en ese caso y NO genera imagen; pdf.py /
-enviar_reporte.py omiten el panel del gráfico ese día (la tarjeta de estado ya cubre ese
-mensaje: "todas las sociedades conciliaron")."""
+Historial de esta métrica, para no volver a dar vueltas en círculo:
+1. Versión original: top 5 por |Estado de Resultados| (proxy de "tamaño", porque este
+   reporte no calcula ingresos reales).
+2. Rediseño premium (mismo día): se cambió a top 5 por |Dif.| ("mayor diferencia", pedido
+   explícito de ese brief) -- pero como este reporte casi siempre da Dif.=0.00 en las 19
+   sociedades (es un cuadre, se espera que concilie), el gráfico se omitía casi todos los
+   días por falta de datos que rankear.
+3. Esta versión (revertida): de vuelta a |Estado de Resultados| -- el usuario prefiere ver
+   siempre el tamaño de las sociedades más grandes, no depende de que exista una diferencia
+   ese día. build_chart_top5() ya no recibe `tolerancia` (no la necesita)."""
 
 import os
 
@@ -41,15 +43,16 @@ def _money_corta(v):
     return f"{signo}${a:,.0f}"
 
 
-def build_chart_top5(df, tolerancia, out_path):
-    """df: columnas sociedad, nombre_sociedad, dif. Devuelve True si generó la imagen
-    (había al menos 1 sociedad con |Dif.| > tolerancia), False si no había nada que graficar."""
-    con_diferencia = df[df["dif"].abs() > tolerancia]
-    if con_diferencia.empty:
+def build_chart_top5(df, out_path):
+    """df: columnas sociedad, nombre_sociedad, estado_resultados. Devuelve True si generó la
+    imagen, False solo en el caso extremo de que TODAS las sociedades den $0 (nada que
+    rankear -- no se ha visto en datos reales, pero se maneja igual que antes por seguridad)."""
+    con_datos = df[df["estado_resultados"].abs() > 0.005]
+    if con_datos.empty:
         return False
 
-    top = con_diferencia.reindex(
-        con_diferencia["dif"].abs().sort_values(ascending=False).index
+    top = con_datos.reindex(
+        con_datos["estado_resultados"].abs().sort_values(ascending=False).index
     ).head(TOP_N)
     top = top.iloc[::-1]  # invertido: barh dibuja de abajo hacia arriba, la #1 queda arriba
 
@@ -58,7 +61,7 @@ def build_chart_top5(df, tolerancia, out_path):
     ax.set_facecolor(COLORS["surface"])
 
     y = range(len(top))
-    valores = top["dif"].to_numpy()
+    valores = top["estado_resultados"].to_numpy()
     # Barras más gruesas que la versión anterior (0.62 vs 0.58) y color secundario de marca
     # para todas -- serie única, el eje ya identifica cada sociedad (ver dataviz: el color no
     # debe cargar identidad cuando la posición ya lo hace).
@@ -89,12 +92,17 @@ def build_chart_top5(df, tolerancia, out_path):
                         ha="left", va="center", fontsize=8.5, color=COLORS["primary"],
                         fontweight="bold")
 
-    ax.set_title("Top 5 sociedades con mayor diferencia", fontsize=12.5, color=COLORS["primary"],
-                 fontweight="bold", loc="left", pad=16)
-    ax.text(0, 1.155, "Magnitud absoluta de la diferencia diaria", transform=ax.transAxes,
-            fontsize=8.5, color=COLORS["muted"])
+    # Título arriba de TODO (fig.suptitle, no ax.set_title): un ax.text() en coordenadas de
+    # ejes por encima de y=1 (como se probó primero) se solapaba con el título de la propia
+    # Axes porque tight_layout() no reserva espacio para texto fuera de sus límites -- se
+    # veía como dos líneas de texto pisándose. suptitle + ax.set_title (subtítulo, pegado al
+    # eje) son ambos mecanismos que matplotlib sí contempla al calcular el layout.
+    fig.suptitle("Top 5 sociedades por Resultado Financiero", x=0.01, ha="left",
+                 fontsize=12.5, fontweight="bold", color=COLORS["primary"])
+    ax.set_title("Magnitud absoluta del Estado de Resultados", fontsize=8.5,
+                 color=COLORS["muted"], loc="left", pad=8)
 
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
     fig.savefig(out_path, facecolor=fig.get_facecolor())
     plt.close(fig)
     return True

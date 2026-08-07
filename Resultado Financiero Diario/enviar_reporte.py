@@ -193,7 +193,7 @@ def build_email_html(fecha_str, hora_str, df, chart_src, chart_ok, logo_src):
         <tr><td style="padding:0 28px 18px;">
           <img src="{chart_src}" width="620"
                style="width:100%;max-width:620px;display:block;border-radius:10px;border:1px solid {COLORS['border']};"
-               alt="Top 5 sociedades con mayor diferencia">
+               alt="Top 5 sociedades por Resultado Financiero">
         </td></tr>"""
 
     logo_html = f'<img src="{logo_src}" width="34" style="display:block;margin-bottom:6px;">' if logo_src else ""
@@ -262,7 +262,7 @@ def enviar(pdf_path, destinatario, dry_run=False):
     _, df = fetch_resultado_financiero(client, anio, SOCIEDADES)
 
     chart_path = os.path.join(OUTPUT_DIR, "_chart_resultado_financiero_top5.png")
-    chart_ok = build_chart_top5(df, TOLERANCIA_DIF_MXN, chart_path)
+    chart_ok = build_chart_top5(df, chart_path)
     logo_ok = os.path.exists(LOGO_PNG)
 
     if dry_run:

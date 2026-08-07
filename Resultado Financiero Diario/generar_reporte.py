@@ -51,8 +51,8 @@ def main():
         print(df.loc[df["dif"].abs() > TOLERANCIA_DIF_MXN, ["sociedad", "dif"]].to_string(index=False))
 
     chart_path = os.path.join(OUTPUT_DIR, "_chart_resultado_financiero_top5.png")
-    chart_ok = build_chart_top5(df, TOLERANCIA_DIF_MXN, chart_path)
-    print(f"\nGráfico top 5 por diferencia: {'generado' if chart_ok else 'omitido (sin diferencias que graficar hoy)'}")
+    chart_ok = build_chart_top5(df, chart_path)
+    print(f"\nGráfico top 5 por Resultado Financiero: {'generado' if chart_ok else 'omitido (sin datos que graficar)'}")
 
     output_path = os.path.join(OUTPUT_DIR, f"resultado_financiero_diario_{hoy.isoformat()}.pdf")
     build_pdf(df, fecha_str, hora_str, chart_path, chart_ok, output_path)
