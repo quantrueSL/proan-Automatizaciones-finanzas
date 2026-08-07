@@ -106,7 +106,8 @@ MAX_SOCIEDADES_EN_GRAFICO = 20
 
 # --- Envío de correo ------------------------------------------------------------------------
 # Destinatario confirmado por el usuario (2026-08-07): mismo que REPORTE_EMAIL_TO. Horario de
-# Cloud Scheduler propuesto y aceptado: 08:00 America/Mexico_City, día 1 de cada mes -- el Job
-# en sí y deploy.sh siguen sin construirse (pendiente de mostrar el diseño y de resolver el
-# hueco de cobertura de SCO1, ver memoria del proyecto).
+# Cloud Scheduler: 08:00 America/Mexico_City, día 1 de cada mes -- ver deploy.sh.
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Mensual PROAN - {mes1_str} y {mes2_str}"
+# Fallback SOLO para ejecución local sin REPORTE_EMAIL_TO en el entorno (en Cloud Run esta
+# variable siempre viene inyectada por deploy.sh, ver env-vars-file ahí).
+EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"

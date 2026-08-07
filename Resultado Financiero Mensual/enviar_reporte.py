@@ -29,8 +29,8 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 
 from config import (
-    EMAIL_ASUNTO_TEMPLATE, OUTPUT_DIR, PROJECT_ID, SOCIEDADES, COLORS,
-    FILTRAR_SOCIEDADES_SIN_ACTIVIDAD_RECIENTE,
+    EMAIL_ASUNTO_TEMPLATE, EMAIL_DESTINATARIO_DEFAULT, OUTPUT_DIR, PROJECT_ID, SOCIEDADES,
+    COLORS, FILTRAR_SOCIEDADES_SIN_ACTIVIDAD_RECIENTE,
 )
 from datos import fetch_resultado_mensual
 from graficos import build_chart_mensual
@@ -278,8 +278,11 @@ def enviar(pdf_path, destinatario, dry_run=False):
 
 
 def main():
+    # REPORTE_EMAIL_TO (Cloud Run, ver deploy.sh) tiene prioridad sobre EMAIL_DESTINATARIO_DEFAULT
+    # (config.py, usado en ejecución local) -- mismo patrón que "Reportes diarios contables".
+    destinatario_default = os.environ.get("REPORTE_EMAIL_TO", EMAIL_DESTINATARIO_DEFAULT)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--to", required=True, help="Correo destinatario")
+    parser.add_argument("--to", default=destinatario_default, help="Correo destinatario")
     parser.add_argument("--pdf", default=None, help="Ruta al PDF a enviar")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

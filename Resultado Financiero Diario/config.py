@@ -94,9 +94,11 @@ FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 # Misma carpeta de salida que el resto de reportes (Windows local / Cloud Run vía OUTPUT_DIR).
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\salidas")
 
-# --- Envío de correo (NO usado todavía) --------------------------------------------------
-# Deliberadamente sin terminar de definir: el usuario pidió confirmar antes de tocar envío
-# si el destinatario es el mismo que REPORTE_EMAIL_TO (4 cuentas contables) u otro distinto,
-# y si va en un segundo Cloud Run Job o en el mismo. No crear enviar_reporte.py ni deploy.sh
-# para esta carpeta hasta tener esa confirmación (ver briefing 2026-08-07).
+# --- Envío de correo ------------------------------------------------------------------------
+# Destinatario confirmado por el usuario (2026-08-07): mismo que REPORTE_EMAIL_TO (4 cuentas
+# contables). Job separado, propio horario (07:45 L-S, 30 min después del Job de las 4
+# cuentas) -- confirmado 2026-08-07, ver deploy.sh.
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Diario PROAN - {fecha}"
+# Fallback SOLO para ejecución local sin REPORTE_EMAIL_TO en el entorno (en Cloud Run esta
+# variable siempre viene inyectada por deploy.sh, ver env-vars-file ahí).
+EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"
