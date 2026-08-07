@@ -113,10 +113,19 @@ SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"
 
 echo -e "${YELLOW}Concediendo permisos al Scheduler para ejecutar el Job...${NC}"
-gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
+# No fatal: la cuenta con la que se despliega (quantrue4@proan.com, rol Editor) no tiene
+# permiso run.jobs.setIamPolicy -- ese permiso está deliberadamente excluido del rol Editor
+# (solo Owner/roles admin de IAM lo tienen). Sin este binding, el Scheduler se crea igual pero
+# el Job le devolverá 403 al intentar invocarlo -- hace falta que alguien con más permisos
+# corra el mismo comando una vez (se imprime abajo si falla).
+if ! gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
   --region "${REGION}" \
   --member "serviceAccount:${SCHEDULER_SA}" \
-  --role "roles/run.invoker" >/dev/null
+  --role "roles/run.invoker" >/dev/null 2>&1; then
+  echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual).${NC}"
+  echo -e "${YELLOW}El Scheduler se va a crear igual, pero NO podrá invocar el Job hasta que alguien con más permisos corra:${NC}"
+  echo "  gcloud run jobs add-iam-policy-binding ${JOB_NAME} --region ${REGION} --member serviceAccount:${SCHEDULER_SA} --role roles/run.invoker --project ${PROJECT_ID}"
+fi
 
 # El Job en sí corre bajo esta misma cuenta -- necesita permiso de lectura en BigQuery sobre
 # proan-quantrue (D30_INTEGRATION, D20_DIMENSION). Si el proyecto no le dio ya ese rol a nivel
