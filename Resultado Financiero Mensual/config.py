@@ -104,10 +104,12 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
 
-# --- Envío de correo ------------------------------------------------------------------------
-# Destinatario confirmado por el usuario (2026-08-07): mismo que REPORTE_EMAIL_TO. Horario de
-# Cloud Scheduler: 08:00 America/Mexico_City, día 1 de cada mes -- ver deploy.sh.
+# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------------
+# Mismo patrón que "Cambio divisa/divisa.py" -- Firestore -> variable de entorno -> tupla
+# hardcodeada. Horario de Cloud Scheduler: 08:00 America/Mexico_City, día 1 de cada mes.
+FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
+FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
+RESULTADO_MENSUAL_LIST_ID = os.environ.get("RESULTADO_MENSUAL_LIST_ID", "resultado_financiero_mensual").strip()
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Mensual PROAN - {mes1_str} y {mes2_str}"
-# Fallback SOLO para ejecución local sin REPORTE_EMAIL_TO en el entorno (en Cloud Run esta
-# variable siempre viene inyectada por deploy.sh, ver env-vars-file ahí).
 EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"
+DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)

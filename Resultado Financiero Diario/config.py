@@ -49,8 +49,12 @@ COLORS = {
     "kpi_border": "#E5E7EB",
 }
 
-LOGO_PNG = os.path.join(_BASE_DIR, "..", "Cambio divisa", "proan.png")  # logo real de Proan,
-# ya usado en la automatización "Cambio divisa" -- se reutiliza tal cual, no se fabrica uno.
+# Logo real de Proan, copiado LOCALMENTE a esta carpeta (2026-08-07, corregido) -- antes
+# apuntaba a "../Cambio divisa/proan.png", una ruta FUERA del contexto de build de Docker
+# ("gcloud builds submit ." solo manda el contenido de esta carpeta). En producción esa ruta
+# nunca existía: no rompía nada (el código ya comprueba os.path.exists antes de usarlo) pero
+# el logo nunca aparecía en el PDF ni en el correo. Ahora viaja con el código, como fonts/.
+LOGO_PNG = os.path.join(_BASE_DIR, "proan.png")
 
 # Catálogo RBUKRS -> nombre comercial. Copiado del mismo catálogo ya validado en "Reportes
 # diarios contables/config.py" (contra el árbol de SAP y el Excel de finanzas, ver ese
@@ -94,11 +98,15 @@ FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 # Misma carpeta de salida que el resto de reportes (Windows local / Cloud Run vía OUTPUT_DIR).
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\salidas")
 
-# --- Envío de correo ------------------------------------------------------------------------
-# Destinatario confirmado por el usuario (2026-08-07): mismo que REPORTE_EMAIL_TO (4 cuentas
-# contables). Job separado, propio horario (07:45 L-S, 30 min después del Job de las 4
-# cuentas) -- confirmado 2026-08-07, ver deploy.sh.
+# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------------
+# Mismo patrón que "Cambio divisa/divisa.py" -- Firestore (lista administrable sin redeploy)
+# -> variable de entorno (fallback) -> tupla hardcodeada (último recurso). Variable y list_id
+# propios de este reporte (ya no comparte REPORTE_EMAIL_TO con los otros dos, ver briefing
+# 2026-08-07) -- aunque el destinatario ACTUAL siga siendo el mismo (lucigo30@ucm.es), ahora
+# se puede cambiar sin tocar los otros reportes.
+FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
+FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
+RESULTADO_DIARIO_LIST_ID = os.environ.get("RESULTADO_DIARIO_LIST_ID", "resultado_financiero_diario").strip()
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Diario PROAN - {fecha}"
-# Fallback SOLO para ejecución local sin REPORTE_EMAIL_TO en el entorno (en Cloud Run esta
-# variable siempre viene inyectada por deploy.sh, ver env-vars-file ahí).
 EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"
+DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)

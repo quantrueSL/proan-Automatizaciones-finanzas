@@ -42,13 +42,14 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada en .env/export, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-# Confirmado con el usuario: lucigo30@ucm.es (ver .env). El deploy exige pasarlo explicito
-# (REPORTE_EMAIL_TO en .env o exportado) en vez de caer solo en el EMAIL_DESTINATARIO_DEFAULT
-# de config.py (una cuenta de prueba) -- asi un .env sin este valor falla ruidoso, no despliega
-# en silencio con el destinatario equivocado.
-REPORTE_EMAIL_TO_VALUE="$(strip_newlines "${REPORTE_EMAIL_TO:-}")"
-require_value "REPORTE_EMAIL_TO" "${REPORTE_EMAIL_TO_VALUE}"
-echo -e "${GREEN}REPORTE_EMAIL_TO detectada en .env/export: ${REPORTE_EMAIL_TO_VALUE}${NC}"
+# Renombrada de REPORTE_EMAIL_TO a REPORTE_CUENTAS_EMAIL_TO (2026-08-07): los 3 reportes de
+# Lucia compartían el mismo nombre de variable, así que no se podía dar un destinatario
+# distinto a cada uno sin tocar código. Ahora es el nivel 2 de la cascada Firestore -> env ->
+# default (ver enviar_reporte.py) -- se sigue exigiendo explícito para que el deploy falle
+# ruidoso si falta, en vez de desplegar en silencio con el destinatario de prueba.
+REPORTE_CUENTAS_EMAIL_TO_VALUE="$(strip_newlines "${REPORTE_CUENTAS_EMAIL_TO:-}")"
+require_value "REPORTE_CUENTAS_EMAIL_TO" "${REPORTE_CUENTAS_EMAIL_TO_VALUE}"
+echo -e "${GREEN}REPORTE_CUENTAS_EMAIL_TO detectada en .env/export: ${REPORTE_CUENTAS_EMAIL_TO_VALUE}${NC}"
 
 if [ ! -f "main.py" ]; then
   echo "Error: no se encuentra main.py"
@@ -71,6 +72,7 @@ gcloud services enable \
   run.googleapis.com \
   cloudscheduler.googleapis.com \
   bigquery.googleapis.com \
+  firestore.googleapis.com \
   containerregistry.googleapis.com
 
 echo -e "${YELLOW}Construyendo imagen...${NC}"
@@ -93,7 +95,11 @@ gcloud run jobs deploy "${JOB_NAME}" \
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
-REPORTE_EMAIL_TO: ${REPORTE_EMAIL_TO_VALUE}
+REPORTE_CUENTAS_EMAIL_TO: ${REPORTE_CUENTAS_EMAIL_TO_VALUE}
+REPORTE_CUENTAS_EMAIL_DRY_RUN: ${REPORTE_CUENTAS_EMAIL_DRY_RUN:-false}
+REPORTE_CUENTAS_LIST_ID: ${REPORTE_CUENTAS_LIST_ID:-reporte_cuentas_diario}
+FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
+FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}
 SENDGRID_API_KEY: ${SENDGRID_API_KEY_VALUE}
 OUTPUT_DIR: /tmp/salidas
@@ -109,10 +115,17 @@ SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"
 
 echo -e "${YELLOW}Concediendo permisos al Scheduler para ejecutar el Job...${NC}"
-gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
+# No fatal: si la cuenta con la que se despliega no tiene run.jobs.setIamPolicy (rol Editor no
+# lo incluye), el Scheduler se crea igual pero el Job le devolverá 403 hasta que alguien con
+# más permisos corra el mismo comando (se imprime abajo si falla) -- ver briefing 2026-08-07.
+if ! gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
   --region "${REGION}" \
   --member "serviceAccount:${SCHEDULER_SA}" \
-  --role "roles/run.invoker" >/dev/null
+  --role "roles/run.invoker" >/dev/null 2>&1; then
+  echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual).${NC}"
+  echo -e "${YELLOW}El Scheduler se va a crear igual, pero NO podrá invocar el Job hasta que alguien con más permisos corra:${NC}"
+  echo "  gcloud run jobs add-iam-policy-binding ${JOB_NAME} --region ${REGION} --member serviceAccount:${SCHEDULER_SA} --role roles/run.invoker --project ${PROJECT_ID}"
+fi
 
 # El Job en sí corre bajo esta misma cuenta (${SCHEDULER_SA}, la de compute por defecto) --
 # necesita permiso de lectura en BigQuery sobre proan-quantrue (D30_INTEGRATION,
@@ -151,7 +164,7 @@ echo -e "${YELLOW}Variables configuradas en el Cloud Run Job:${NC}"
 gcloud run jobs describe "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'REPORTE_|SENDGRID_|OUTPUT_DIR' || true
+  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'REPORTE_CUENTAS_|SENDGRID_|OUTPUT_DIR|FIRESTORE_' || true
 echo -e "${GREEN}Cloud Run Job:${NC} ${JOB_NAME}"
 echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"

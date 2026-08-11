@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # el código porque pdf.py/graficos.py las registran por ruta relativa (config.py, _BASE_DIR).
 COPY config.py datos.py graficos.py insights.py pdf.py generar_reporte.py enviar_reporte.py main.py ./
 COPY fonts/ fonts/
+# Logo de Proan, copiado localmente a esta carpeta (ver nota en config.py: antes apuntaba
+# fuera del contexto de build y nunca llegaba al contenedor).
+COPY proan.png .
 
 # Cloud Run Jobs corren un solo proceso -- main.py encadena generar_reporte + enviar_reporte.
 # No hay servidor HTTP que exponer, por eso no hay EXPOSE/PORT como en un Cloud Run Service.

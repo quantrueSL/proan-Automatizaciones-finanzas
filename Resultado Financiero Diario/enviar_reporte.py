@@ -14,10 +14,18 @@ No duplica cálculos: reutiliza fetch_resultado_financiero (datos.py), build_cha
 (graficos.py), build_kpis/build_insights (insights.py) y _money/_money_sin_decimales (pdf.py)
 -- las mismas funciones que arman el PDF.
 
+Destinatarios: cascada Firestore -> RESULTADO_DIARIO_EMAIL_TO -> default hardcodeado (ver
+resolve_email_recipients() y config.DEFAULT_EMAIL_RECIPIENTS) -- mismo patrón que
+"Cambio divisa/divisa.py". El correo se manda To: SENDGRID_FROM_EMAIL, Cc: cada destinatario
+resuelto.
+
 Uso:
-    python enviar_reporte.py --to correo@destino.com
-    python enviar_reporte.py --to correo@destino.com --dry-run   # no envía; guarda
-                                                                  # una vista previa del HTML
+    python enviar_reporte.py                        # cascada de destinatarios
+    python enviar_reporte.py --to correo@destino.com # OVERRIDE explícito, salta la cascada
+    python enviar_reporte.py --dry-run               # no envía; guarda una vista previa del HTML
+
+En Cloud Run también se puede forzar dry-run con RESULTADO_DIARIO_EMAIL_DRY_RUN=true (además
+del flag --dry-run) -- un Job no recibe argumentos de línea de comandos.
 """
 
 import argparse
@@ -29,7 +37,8 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 
 from config import (
-    EMAIL_ASUNTO_TEMPLATE, EMAIL_DESTINATARIO_DEFAULT, OUTPUT_DIR, PROJECT_ID, SOCIEDADES,
+    DEFAULT_EMAIL_RECIPIENTS, EMAIL_ASUNTO_TEMPLATE, FIRESTORE_DATABASE_ID,
+    FIRESTORE_LISTS_COLLECTION, OUTPUT_DIR, PROJECT_ID, RESULTADO_DIARIO_LIST_ID, SOCIEDADES,
     COLORS, TOLERANCIA_DIF_MXN, LOGO_PNG,
 )
 from datos import fetch_resultado_financiero
@@ -37,12 +46,76 @@ from graficos import build_chart_top5
 from insights import build_kpis, build_insights
 from pdf import _money, _money_sin_decimales
 
-_SIBLING_ENV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "Reportes diarios contables", ".env"
-)
-load_dotenv(_SIBLING_ENV)
+# Carga el .env de ESTA carpeta -- ya no el de "Reportes diarios contables" (esa dependencia
+# rompía la autonomía de carpeta que pide el README del repo, y en cuanto una de las dos se
+# despliegue/mueva sola el .env vecino no estará ahí). El usuario debe crear este .env propio
+# (ver .env.example) -- no se copia la API key de otra carpeta automáticamente.
+load_dotenv()
 
 SENDGRID_FROM_EMAIL_DEFAULT = "noreply@proan.com"
+
+
+# --- Resolución de destinatarios: Firestore -> env var -> default -------------------------
+# Copiado de "Cambio divisa/divisa.py", cambiando el nombre de variable y el list_id.
+
+def _email_recipients_env():
+    raw = os.environ.get("RESULTADO_DIARIO_EMAIL_TO", "").strip()
+    return [email.strip() for email in raw.split(",") if email.strip()]
+
+
+def _normalize_recipients(raw_recipients):
+    recipients = []
+    seen = set()
+    for raw in raw_recipients:
+        email = str(raw or "").strip()
+        if not email:
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        recipients.append(email)
+    return recipients
+
+
+def _firestore_recipients():
+    from google.cloud import firestore
+
+    client = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DATABASE_ID)
+    snapshot = client.collection(FIRESTORE_LISTS_COLLECTION).document(RESULTADO_DIARIO_LIST_ID).get()
+    if not snapshot.exists:
+        print(f"[recipients] No existe documento Firestore {FIRESTORE_LISTS_COLLECTION}/"
+              f"{RESULTADO_DIARIO_LIST_ID} en base {FIRESTORE_DATABASE_ID}")
+        return []
+
+    data = snapshot.to_dict() or {}
+    if not data.get("enabled", True):
+        print(f"[recipients] La lista Firestore {RESULTADO_DIARIO_LIST_ID} está deshabilitada")
+        return []
+
+    emails = data.get("emails")
+    if not isinstance(emails, list):
+        print(f"[recipients] El campo emails de {RESULTADO_DIARIO_LIST_ID} no es una lista")
+        return []
+
+    return _normalize_recipients([str(email) for email in emails])
+
+
+def resolve_email_recipients():
+    try:
+        firestore_recipients = _firestore_recipients()
+    except Exception as exc:
+        print(f"[recipients] No se pudieron leer destinatarios desde Firestore: {exc}")
+        firestore_recipients = []
+
+    if firestore_recipients:
+        return firestore_recipients, "firestore"
+
+    env_recipients = _normalize_recipients(_email_recipients_env())
+    if env_recipients:
+        return env_recipients, "env"
+
+    return list(DEFAULT_EMAIL_RECIPIENTS), "default"
 CHART_CID = "grafico_top5_resultado_financiero"
 LOGO_CID = "logo_proan"
 
@@ -249,7 +322,7 @@ def build_email_html(fecha_str, hora_str, df, chart_src, chart_ok, logo_src):
 </body></html>"""
 
 
-def enviar(pdf_path, destinatario, dry_run=False):
+def enviar(pdf_path, destinatario_override=None, dry_run_override=False):
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"No se encontró el PDF: {pdf_path}")
 
@@ -260,6 +333,18 @@ def enviar(pdf_path, destinatario, dry_run=False):
     asunto = EMAIL_ASUNTO_TEMPLATE.format(fecha=fecha_str)
     cuerpo_texto_plano = CUERPO_TEXTO_PLANO.format(fecha=fecha_str)
     from_email = os.environ.get("SENDGRID_FROM_EMAIL", SENDGRID_FROM_EMAIL_DEFAULT)
+
+    if destinatario_override:
+        recipients = _normalize_recipients([destinatario_override])
+        recipients_source = "override (--to, cascada omitida)"
+    else:
+        recipients, recipients_source = resolve_email_recipients()
+    print(f"Destinatarios resueltos desde {recipients_source}: {recipients}")
+
+    dry_run_env = os.environ.get("RESULTADO_DIARIO_EMAIL_DRY_RUN", "false").strip().lower() in {
+        "1", "true", "yes",
+    }
+    dry_run = dry_run_override or dry_run_env
 
     client = bigquery.Client(project=PROJECT_ID)
     _, df = fetch_resultado_financiero(client, anio, SOCIEDADES)
@@ -275,7 +360,7 @@ def enviar(pdf_path, destinatario, dry_run=False):
         preview_path = os.path.join(OUTPUT_DIR, "_preview_email_resultado_financiero.html")
         with open(preview_path, "w", encoding="utf-8") as f:
             f.write(html_preview)
-        print(f"[DRY RUN] De: {from_email}  Para: {destinatario}")
+        print(f"[DRY RUN] De: {from_email}  Para (To): {from_email}  Cc: {recipients}")
         print(f"[DRY RUN] Asunto: {asunto}")
         print(f"[DRY RUN] Adjunto PDF: {pdf_path}")
         print(f"[DRY RUN] Gráfico: {'incluido' if chart_ok else 'omitido (sin diferencias que graficar)'}")
@@ -289,16 +374,18 @@ def enviar(pdf_path, destinatario, dry_run=False):
 
     import sendgrid
     from sendgrid.helpers.mail import (
-        Attachment, ContentId, Disposition, FileContent, FileName, FileType, Mail,
+        Attachment, Cc, ContentId, Disposition, FileContent, FileName, FileType, Mail,
     )
 
     message = Mail(
         from_email=from_email,
-        to_emails=destinatario,
+        to_emails=from_email,
         subject=asunto,
         plain_text_content=cuerpo_texto_plano,
         html_content=html_body,
     )
+    for recipient in recipients:
+        message.add_cc(Cc(recipient))
 
     with open(pdf_path, "rb") as f:
         pdf_bytes = f.read()
@@ -339,11 +426,10 @@ def enviar(pdf_path, destinatario, dry_run=False):
 
 
 def main():
-    # REPORTE_EMAIL_TO (Cloud Run, ver deploy.sh) tiene prioridad sobre EMAIL_DESTINATARIO_DEFAULT
-    # (config.py, usado en ejecución local) -- mismo patrón que "Reportes diarios contables".
-    destinatario_default = os.environ.get("REPORTE_EMAIL_TO", EMAIL_DESTINATARIO_DEFAULT)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--to", default=destinatario_default, help="Correo destinatario")
+    parser.add_argument("--to", default=None,
+                         help="Override de destinatario para pruebas locales -- salta la "
+                              "cascada Firestore/RESULTADO_DIARIO_EMAIL_TO/default")
     parser.add_argument("--pdf", default=None, help="Ruta al PDF a enviar")
     parser.add_argument("--dry-run", action="store_true",
                          help="No envía el correo; guarda una vista previa del HTML")
@@ -352,9 +438,9 @@ def main():
     pdf_path = args.pdf or os.path.join(
         OUTPUT_DIR, f"resultado_financiero_diario_{datetime.date.today().isoformat()}.pdf"
     )
-    enviar(pdf_path, args.to, dry_run=args.dry_run)
+    enviar(pdf_path, destinatario_override=args.to, dry_run_override=args.dry_run)
     if not args.dry_run:
-        print(f"Reporte enviado a {args.to}: {pdf_path}")
+        print(f"Reporte enviado: {pdf_path}")
 
 
 if __name__ == "__main__":

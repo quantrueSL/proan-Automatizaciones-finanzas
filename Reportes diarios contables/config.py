@@ -208,8 +208,18 @@ FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
 
-# --- Envío de correo ---------------------------------------------------------------
+# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------
+# Mismo patrón que "Cambio divisa/divisa.py", "Anticipos/anticipos.py" y "Partidas abiertas
+# por compensar/partidas.py": Firestore (lista administrable sin redeploy) -> variable de
+# entorno (fallback) -> tupla hardcodeada (último recurso). Antes este reporte y los otros
+# 2 de Lucia compartían el mismo nombre de variable (REPORTE_EMAIL_TO) -- no se podía dar un
+# destinatario distinto a cada uno sin tocar código. Ahora cada uno tiene su propio nombre de
+# variable y su propio documento en Firestore (ver briefing 2026-08-07).
+FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
+FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
+REPORTE_CUENTAS_LIST_ID = os.environ.get("REPORTE_CUENTAS_LIST_ID", "reporte_cuentas_diario").strip()
 EMAIL_DESTINATARIO_DEFAULT = "luciaggx4@gmail.com"
+DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)
 EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
 EMAIL_CUERPO_TEMPLATE = (
     "Hola Luis Enrique,\n\n"

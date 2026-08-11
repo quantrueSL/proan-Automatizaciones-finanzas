@@ -20,17 +20,11 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Desplegando Resultado Financiero Diario PROAN...${NC}"
 
-# Esta carpeta no tiene su propio .env con secretos todavía -- si no hay uno local, usa el de
-# "Reportes diarios contables" (mismo secreto de SendGrid, ya compartido en tiempo de
-# ejecución vía enviar_reporte.py). Poner un .env aquí mismo lo sobreescribe sin tocar nada más.
+# Carpeta autónoma (2026-08-07): ya NO cae al .env de "Reportes diarios contables" -- cada
+# automatización tiene su propio .env, ver .env.example. Crea uno aquí antes de desplegar.
 if [ -f ".env" ]; then
   set -o allexport
   source .env
-  set +o allexport
-elif [ -f "../Reportes diarios contables/.env" ]; then
-  echo -e "${YELLOW}No hay .env local -- usando el de 'Reportes diarios contables' (secreto compartido).${NC}"
-  set -o allexport
-  source "../Reportes diarios contables/.env"
   set +o allexport
 fi
 
@@ -42,7 +36,7 @@ require_value() {
   local name="$1"
   local value="$2"
   if [[ -z "$value" ]]; then
-    echo "Error: falta $name. Definelo en .env (aquí o en 'Reportes diarios contables') o exportalo antes de ejecutar deploy.sh." >&2
+    echo "Error: falta $name. Definelo en .env o exportalo antes de ejecutar deploy.sh." >&2
     exit 1
   fi
 }
@@ -51,10 +45,11 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-# Confirmado con el usuario (2026-08-07): mismo destinatario que REPORTE_EMAIL_TO.
-REPORTE_EMAIL_TO_VALUE="$(strip_newlines "${REPORTE_EMAIL_TO:-}")"
-require_value "REPORTE_EMAIL_TO" "${REPORTE_EMAIL_TO_VALUE}"
-echo -e "${GREEN}REPORTE_EMAIL_TO detectada: ${REPORTE_EMAIL_TO_VALUE}${NC}"
+# Variable propia de este reporte (2026-08-07, ya no comparte REPORTE_EMAIL_TO con los otros
+# dos) -- nivel 2 de la cascada Firestore -> env -> default, ver enviar_reporte.py.
+RESULTADO_DIARIO_EMAIL_TO_VALUE="$(strip_newlines "${RESULTADO_DIARIO_EMAIL_TO:-}")"
+require_value "RESULTADO_DIARIO_EMAIL_TO" "${RESULTADO_DIARIO_EMAIL_TO_VALUE}"
+echo -e "${GREEN}RESULTADO_DIARIO_EMAIL_TO detectada: ${RESULTADO_DIARIO_EMAIL_TO_VALUE}${NC}"
 
 if [ ! -f "main.py" ]; then
   echo "Error: no se encuentra main.py"
@@ -77,6 +72,7 @@ gcloud services enable \
   run.googleapis.com \
   cloudscheduler.googleapis.com \
   bigquery.googleapis.com \
+  firestore.googleapis.com \
   containerregistry.googleapis.com
 
 echo -e "${YELLOW}Construyendo imagen...${NC}"
@@ -97,7 +93,11 @@ gcloud run jobs deploy "${JOB_NAME}" \
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
-REPORTE_EMAIL_TO: ${REPORTE_EMAIL_TO_VALUE}
+RESULTADO_DIARIO_EMAIL_TO: ${RESULTADO_DIARIO_EMAIL_TO_VALUE}
+RESULTADO_DIARIO_EMAIL_DRY_RUN: ${RESULTADO_DIARIO_EMAIL_DRY_RUN:-false}
+RESULTADO_DIARIO_LIST_ID: ${RESULTADO_DIARIO_LIST_ID:-resultado_financiero_diario}
+FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
+FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}
 SENDGRID_API_KEY: ${SENDGRID_API_KEY_VALUE}
 OUTPUT_DIR: /tmp/salidas
@@ -163,7 +163,7 @@ echo -e "${YELLOW}Variables configuradas en el Cloud Run Job:${NC}"
 gcloud run jobs describe "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'REPORTE_|SENDGRID_|OUTPUT_DIR' || true
+  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'RESULTADO_DIARIO_|SENDGRID_|OUTPUT_DIR|FIRESTORE_' || true
 echo -e "${GREEN}Cloud Run Job:${NC} ${JOB_NAME}"
 echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"

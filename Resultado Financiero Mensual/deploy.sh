@@ -20,17 +20,11 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Desplegando Resultado Financiero Mensual PROAN...${NC}"
 
-# Esta carpeta no tiene su propio .env con secretos todavía -- si no hay uno local, usa el de
-# "Reportes diarios contables" (mismo secreto de SendGrid, ya compartido en tiempo de
-# ejecución vía enviar_reporte.py). Poner un .env aquí mismo lo sobreescribe sin tocar nada más.
+# Carpeta autónoma (2026-08-07): ya NO cae al .env de "Reportes diarios contables" -- cada
+# automatización tiene su propio .env, ver .env.example. Crea uno aquí antes de desplegar.
 if [ -f ".env" ]; then
   set -o allexport
   source .env
-  set +o allexport
-elif [ -f "../Reportes diarios contables/.env" ]; then
-  echo -e "${YELLOW}No hay .env local -- usando el de 'Reportes diarios contables' (secreto compartido).${NC}"
-  set -o allexport
-  source "../Reportes diarios contables/.env"
   set +o allexport
 fi
 
@@ -42,7 +36,7 @@ require_value() {
   local name="$1"
   local value="$2"
   if [[ -z "$value" ]]; then
-    echo "Error: falta $name. Definelo en .env (aquí o en 'Reportes diarios contables') o exportalo antes de ejecutar deploy.sh." >&2
+    echo "Error: falta $name. Definelo en .env o exportalo antes de ejecutar deploy.sh." >&2
     exit 1
   fi
 }
@@ -51,10 +45,11 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-# Confirmado con el usuario (2026-08-07): mismo destinatario que REPORTE_EMAIL_TO.
-REPORTE_EMAIL_TO_VALUE="$(strip_newlines "${REPORTE_EMAIL_TO:-}")"
-require_value "REPORTE_EMAIL_TO" "${REPORTE_EMAIL_TO_VALUE}"
-echo -e "${GREEN}REPORTE_EMAIL_TO detectada: ${REPORTE_EMAIL_TO_VALUE}${NC}"
+# Variable propia de este reporte (2026-08-07, ya no comparte REPORTE_EMAIL_TO con los otros
+# dos) -- nivel 2 de la cascada Firestore -> env -> default, ver enviar_reporte.py.
+RESULTADO_MENSUAL_EMAIL_TO_VALUE="$(strip_newlines "${RESULTADO_MENSUAL_EMAIL_TO:-}")"
+require_value "RESULTADO_MENSUAL_EMAIL_TO" "${RESULTADO_MENSUAL_EMAIL_TO_VALUE}"
+echo -e "${GREEN}RESULTADO_MENSUAL_EMAIL_TO detectada: ${RESULTADO_MENSUAL_EMAIL_TO_VALUE}${NC}"
 
 if [ ! -f "main.py" ]; then
   echo "Error: no se encuentra main.py"
@@ -77,6 +72,7 @@ gcloud services enable \
   run.googleapis.com \
   cloudscheduler.googleapis.com \
   bigquery.googleapis.com \
+  firestore.googleapis.com \
   containerregistry.googleapis.com
 
 echo -e "${YELLOW}Construyendo imagen...${NC}"
@@ -97,7 +93,11 @@ gcloud run jobs deploy "${JOB_NAME}" \
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
-REPORTE_EMAIL_TO: ${REPORTE_EMAIL_TO_VALUE}
+RESULTADO_MENSUAL_EMAIL_TO: ${RESULTADO_MENSUAL_EMAIL_TO_VALUE}
+RESULTADO_MENSUAL_EMAIL_DRY_RUN: ${RESULTADO_MENSUAL_EMAIL_DRY_RUN:-false}
+RESULTADO_MENSUAL_LIST_ID: ${RESULTADO_MENSUAL_LIST_ID:-resultado_financiero_mensual}
+FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
+FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}
 SENDGRID_API_KEY: ${SENDGRID_API_KEY_VALUE}
 OUTPUT_DIR: /tmp/salidas
@@ -113,10 +113,19 @@ SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"
 
 echo -e "${YELLOW}Concediendo permisos al Scheduler para ejecutar el Job...${NC}"
-gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
+# No fatal: la cuenta con la que se despliega (quantrue4@proan.com, rol Editor) no tiene
+# permiso run.jobs.setIamPolicy -- ese permiso está deliberadamente excluido del rol Editor
+# (solo Owner/roles admin de IAM lo tienen). Sin este binding, el Scheduler se crea igual pero
+# el Job le devolverá 403 al intentar invocarlo -- hace falta que alguien con más permisos
+# corra el mismo comando una vez (se imprime abajo si falla).
+if ! gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
   --region "${REGION}" \
   --member "serviceAccount:${SCHEDULER_SA}" \
-  --role "roles/run.invoker" >/dev/null
+  --role "roles/run.invoker" >/dev/null 2>&1; then
+  echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual).${NC}"
+  echo -e "${YELLOW}El Scheduler se va a crear igual, pero NO podrá invocar el Job hasta que alguien con más permisos corra:${NC}"
+  echo "  gcloud run jobs add-iam-policy-binding ${JOB_NAME} --region ${REGION} --member serviceAccount:${SCHEDULER_SA} --role roles/run.invoker --project ${PROJECT_ID}"
+fi
 
 # El Job en sí corre bajo esta misma cuenta -- necesita permiso de lectura en BigQuery sobre
 # proan-quantrue (D30_INTEGRATION, D10_POSTPROCESSING para los snapshots). Si el proyecto no
@@ -154,7 +163,7 @@ echo -e "${YELLOW}Variables configuradas en el Cloud Run Job:${NC}"
 gcloud run jobs describe "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'REPORTE_|SENDGRID_|OUTPUT_DIR' || true
+  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'RESULTADO_MENSUAL_|SENDGRID_|OUTPUT_DIR|FIRESTORE_' || true
 echo -e "${GREEN}Cloud Run Job:${NC} ${JOB_NAME}"
 echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"
