@@ -73,7 +73,7 @@ echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 512Mi \
+  --memory 1Gi \
   --cpu 1 \
   --task-timeout 900 \
   --max-retries 1

@@ -4,22 +4,20 @@ set -euo pipefail
 
 PROJECT_ID="proan-quantrue"
 REGION="us-west4"
-JOB_NAME="partidas-pendientes-diario"
-SCHEDULER_JOB_NAME="partidas-pendientes-diario-scheduler"
+JOB_NAME="clientes-bloqueados-diario"
+SCHEDULER_JOB_NAME="clientes-bloqueados-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Lunes a sabado a las 10:10 de Mexico. Diez minutos despues del reporte de anticipos, a
-# proposito: si los dos salieran a la vez llegarian mas de veinte correos de golpe y
-# costaria distinguir cual es cual. El espejo de BSIS se recarga cada pocas horas, asi
-# que a esa hora el dato es del mismo dia.
-SCHEDULER_CRON="10 10 * * 1-6"
+# Lunes a sabado a las 10:20 de Mexico, 10 minutos despues de Partidas para que los
+# tres reportes no lleguen de golpe.
+SCHEDULER_CRON="20 10 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}Desplegando reporte diario de partidas pendientes de compensar...${NC}"
+echo -e "${YELLOW}Desplegando reporte diario de clientes bloqueados...${NC}"
 
 if [ -f ".env" ]; then
   set -o allexport
@@ -44,9 +42,9 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada en .env/export, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-if [ ! -f "partidas.py" ]; then
-  echo "Error: no se encuentra partidas.py"
-  echo "Ejecuta este script desde la carpeta Partidas abiertas por compensar"
+if [ ! -f "clientes_bloqueados.py" ]; then
+  echo "Error: no se encuentra clientes_bloqueados.py"
+  echo "Ejecuta este script desde la carpeta Clientes bloqueados"
   exit 1
 fi
 
@@ -87,7 +85,7 @@ echo -e "${YELLOW}Configurando variables de entorno del Cloud Run Job...${NC}"
 gcloud run jobs update "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --update-env-vars "^~^PARTIDAS_EMAIL_DRY_RUN=${PARTIDAS_EMAIL_DRY_RUN:-false}~PARTIDAS_ONLY_SOCIEDADES=${PARTIDAS_ONLY_SOCIEDADES:-}~PARTIDAS_EMAIL_TO=${PARTIDAS_EMAIL_TO:-pcoma@quantrue.com}~PARTIDAS_MAX_ANTIGUEDAD_HORAS=${PARTIDAS_MAX_ANTIGUEDAD_HORAS:-6}~SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@proan.com}~SENDGRID_API_KEY=${SENDGRID_API_KEY_VALUE}~FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-proan-lista-mails}~FIRESTORE_LISTS_COLLECTION=${FIRESTORE_LISTS_COLLECTION:-lists}~PARTIDAS_LIST_ID=${PARTIDAS_LIST_ID:-partidas_pendientes}"
+  --update-env-vars "^~^BLOQUEADOS_EMAIL_DRY_RUN=${BLOQUEADOS_EMAIL_DRY_RUN:-false}~BLOQUEADOS_ONLY_SOCIEDADES=${BLOQUEADOS_ONLY_SOCIEDADES:-}~BLOQUEADOS_EMAIL_TO=${BLOQUEADOS_EMAIL_TO:-pcoma@quantrue.com}~BLOQUEADOS_MAX_ANTIGUEDAD_HORAS=${BLOQUEADOS_MAX_ANTIGUEDAD_HORAS:-30}~SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@proan.com}~SENDGRID_API_KEY=${SENDGRID_API_KEY_VALUE}~FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-proan-lista-mails}~FIRESTORE_LISTS_COLLECTION=${FIRESTORE_LISTS_COLLECTION:-lists}~BLOQUEADOS_LIST_ID=${BLOQUEADOS_LIST_ID:-clientes_bloqueados}"
 
 SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"
@@ -124,7 +122,7 @@ echo -e "${YELLOW}Variables configuradas en el Cloud Run Job:${NC}"
 gcloud run jobs describe "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'PARTIDAS_|SENDGRID_|FIRESTORE_' || true
+  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'BLOQUEADOS_|SENDGRID_|FIRESTORE_' || true
 echo -e "${GREEN}Cloud Run Job:${NC} ${JOB_NAME}"
 echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"

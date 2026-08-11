@@ -1,0 +1,4 @@
+google-cloud-bigquery
+google-cloud-firestore
+sendgrid==6.11.0
+weasyprint

@@ -1,0 +1,7 @@
+# Los .sh se ejecutan en WSL y en Cloud Build, nunca en cmd, asi que tienen que
+# quedarse en LF aunque core.autocrlf este activado en Windows.
+#
+# Con CRLF, bash falla en la primera linea por el retorno de carro y el despliegue no
+# llega ni a empezar. Y pasa sin avisar: basta un checkout de rama para que git
+# rematerialice el fichero con finales de linea de Windows.
+*.sh text eol=lf

@@ -50,7 +50,8 @@ seria contar el mismo anticipo dos veces.
 | | |
 |---|---|
 | Partidas | `D00_SANDBOX.bsik_real_time`, espejo de **BSIK** de SAP |
-| Nombres | `D20_DIMENSION.dm_vendors`, campo `razon_social` |
+| Nombres de proveedor | `D20_DIMENSION.dm_vendors`, campo `razon_social` |
+| Nombres de sociedad | `D20_DIMENSION.dm_company`, `company_code` → `company_name` |
 
 **BSIK contiene solo partidas abiertas.** Cuando una factura se paga o un anticipo se
 aplica, el apunte **desaparece** de BSIK: no se marca como cerrado.
@@ -177,6 +178,21 @@ desaparecer** de la foto, y un `MERGE` actualiza e inserta pero no borra lo que 
 existir.
 
 ## El correo
+
+Cada sociedad aparece con su **codigo y su razon social**: «Sociedad PAN - Proteina Animal
+SA de CV», en el titulo del bloque, en la cabecera del correo y en la tabla resumen del
+consolidado. El asunto se queda solo con el codigo, para no alargarlo, y el nombre del PDF
+tambien.
+
+El nombre sale de `dm_company`. Ahi `company_code` **es unico** —87 filas y 87 codigos—,
+asi que el cruce no necesita deduplicar, al contrario que el de `dm_vendors`. La columna
+`company` de esa tabla esta vacia en las 87 filas: la buena es `company_name`.
+
+**Si el maestro de sociedades falla, el reporte sale con los codigos a secas.** El nombre
+es una comodidad de lectura, no un dato del reporte: no tiene sentido dejar a finanzas sin
+su correo porque una tabla de referencia no responda. Si el maestro responde pero le falta
+un codigo concreto, ese aparece como «(sin nombre en la maestra)», igual que se hace con los
+proveedores.
 
 Cada sociedad se presenta con sus dos secciones — **Anticipos a proveedores** y **Saldos
 deudores en cuentas de proveedor** — cada una con detalle de cuenta, proveedor, nombre y

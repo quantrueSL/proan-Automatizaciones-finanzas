@@ -36,6 +36,12 @@ compensadas.
 Como en `BSIK`, el espejo lo reescribe entero un replicador de SAP externo cada pocas
 horas, asi que la tabla no guarda historia.
 
+El **nombre de cada sociedad** sale de `D20_DIMENSION.dm_company`, cruzando `company_code`
+con `BUKRS` para obtener `company_name`. Ahi `company_code` **es unico** —87 filas y 87
+codigos—, asi que el cruce no necesita deduplicar, al contrario que el de `dm_vendors` en
+anticipos. La columna `company` de esa tabla esta vacia en las 87 filas: la buena es
+`company_name`.
+
 ### Campos que se usan
 
 | Campo | |
@@ -190,6 +196,16 @@ Se escribe con el **decorador de particion** (`Partidas_pendientes_evolucion$YYY
 la foto, y un `MERGE` actualiza e inserta pero no borra lo que dejo de existir.
 
 ## El correo
+
+Cada sociedad aparece con su **codigo y su razon social**: «Sociedad DBC - Distribuidora de
+Basicos…», en el titulo del bloque, en la cabecera del correo y en la tabla resumen del
+consolidado. El asunto se queda solo con el codigo, para no alargarlo, y el nombre del PDF
+tambien.
+
+**Si el maestro de sociedades falla, el reporte sale con los codigos a secas.** El nombre es
+una comodidad de lectura, no un dato del reporte: no tiene sentido dejar a finanzas sin su
+correo porque una tabla de referencia no responda. Si el maestro responde pero le falta un
+codigo concreto, ese aparece como «(sin nombre en la maestra)».
 
 Cada sociedad se presenta con **una tabla por cuenta de mayor**, con su subtotal, y el
 total de la sociedad al final —que solo aparece si hay mas de una cuenta, porque con una
