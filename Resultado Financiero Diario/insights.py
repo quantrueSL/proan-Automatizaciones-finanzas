@@ -40,7 +40,13 @@ def build_insights(df, kpis):
     insights = []
 
     if kpis["conciliado"]:
-        insights.append("No existen diferencias contables pendientes -- todas las sociedades concilian hoy.")
+        # Redactado 2026-08-17 para no afirmar "no existen diferencias contables pendientes":
+        # Dif. no puede detectarlas (ver pdf._nota_alcance y datos.build_query).
+        insights.append(
+            f"La balanza de comprobación cuadra en las {kpis['n_conciliadas']} sociedades. "
+            f"Esta comprobación no detecta cuentas ausentes de la estructura de balance/PyG "
+            f"(ver nota de alcance)."
+        )
     else:
         insights.append(
             f"La mayor diferencia corresponde a {kpis['sociedad_mayor_diferencia']} "

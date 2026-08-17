@@ -3,14 +3,33 @@
 ## Alcance
 
 Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext`, un cuadre contable por
-sociedad: Balance vs. Estado de Resultados (deben coincidir en teoría; `Dif. != 0` señala
-sociedades con algo mal clasificado o pendiente de revisar). PDF con header, tarjetas KPI,
-gráfico top 5, tabla con estatus por sociedad e insights automáticos. Envía el PDF por correo
-con el mismo contenido visible en el cuerpo del mensaje.
+sociedad: Balance vs. Estado de Resultados. PDF con header, tarjetas KPI, gráfico top 5, tabla
+con estatus por sociedad e insights automáticos. Envía el PDF por correo con el mismo contenido
+visible en el cuerpo del mensaje.
+
+### Limitación importante de la columna `Dif.` (comprobado 2026-08-17)
+
+**`Dif.` es 0.00 por construcción y no puede detectar un descuadre.** Es la suma de todos los
+saldos de la sociedad, y la balanza de comprobación suma cero por partida doble, así que la
+utilidad que sale del balance y la que sale del estado de resultados son forzosamente iguales.
+Medido: máx `|Dif.|` = 0.0000 en las 20 sociedades de 2024 y las 19 de 2026, sin excepción.
+
+Los descuadres que sí muestra ZF01 (en la tabla de referencia del PDF de finanzas: Proteína
+Animal +$425,040 y Proan Alimentos −$529,200 al 13/12/2024) vienen de cuentas **no asignadas a
+la estructura de balance/PyG PROA**, que el árbol de SAP deja fuera. Replicarlo exige las tablas
+`T011` / `FAGL_011`, que **no están en BigQuery** (solo hay `SKA1`, `SKAT`, `SKB1`). Con los
+datos de hoy ese descuadre no se puede calcular: no es un bug de la query. El PDF lleva una nota
+de alcance al pie para que nadie lea el 0.00 como "todo conciliado" — ver
+`pdf._nota_alcance` y el docstring de `datos.py`.
+
+Corolario: **`Dif. == 0` no valida la clasificación BAL/RES** (cualquier partición en dos grupos
+da cero). Para validarla hay que comparar contra el árbol de ZF01 sociedad por sociedad.
 
 **Sin validar contra SAP ZF01 en vivo todavía** -- ver memoria del proyecto
-(`resultado-financiero-diario-proyecto`) para el detalle de qué falta confirmar antes de
-tratar las cifras como definitivas.
+(`resultado-financiero-diario-proyecto`). La comparación contra la tabla del PDF de finanzas
+(13/12/2024) resultó inconcluyente: las diferencias van de −21% a −408% y cuatro sociedades
+salen con signo opuesto, pero el PDF es una foto de año parcial y FY2024 se reclasificó después,
+así que no se puede separar "clasificación incorrecta" de "los datos se movieron".
 
 ## Envío automático a destinatarios
 

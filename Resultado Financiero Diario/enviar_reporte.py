@@ -182,8 +182,11 @@ def _status_card_html(kpis, tolerancia):
     accent = COLORS["good"] if ok else COLORS["critical"]
     icon = _badge_html(ok, 26)
     if ok:
-        headline = "Todas las sociedades conciliaron correctamente."
-        subtext = "No existen diferencias entre Balance y Estado de Resultados para la fecha seleccionada."
+        # Mismo texto que la tarjeta de estado del PDF (pdf._status_card), ajustado 2026-08-17
+        # para no afirmar una conciliación que Dif. no puede comprobar -- ver pdf._nota_alcance.
+        headline = "La balanza de comprobación cuadra en todas las sociedades."
+        subtext = ("Balance y Estado de Resultados arrojan la misma utilidad. El alcance de esta "
+                   "comprobación está detallado en el PDF adjunto.")
     else:
         headline = f"Se detectaron diferencias en {kpis['n_con_diferencias']} sociedad(es)."
         subtext = f"Fuera de tolerancia (+/- ${tolerancia:.2f}) -- requieren revisión, ver filas marcadas abajo."

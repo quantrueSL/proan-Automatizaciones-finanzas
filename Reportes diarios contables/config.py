@@ -217,10 +217,9 @@ SOCIEDADES = {
     "ROMM": "Romo Muñoz Manuel",
     "SAP": "Servicios y Alimentos Proteínicos",
     "FAG": "Ferma Agropecuaria",
-    "PIN": "Sociedad no identificada (PIN)",  # importe residual histórico, revisar si sigue activa
+    "PIN": "Perfil Integral",  # identificada 2026-08-17 vía dm_company ("PERFIL INTEGRAL SA DE CV")
+    "SCO1": "Superdoña Comercial",  # confirmado vía dm_company (plan de cuentas PCSD)
 }
-# Nota: el código real de "Superdoña Comercial" (aparece en el Excel de finanzas) no se
-# ha podido confirmar contra RBUKRS. No inventar un código; añadir aquí cuando se identifique.
 
 # Paleta "navy" (2026-08, v2 -- reemplaza la "firma dorada" anterior por pedido explícito del
 # usuario de un tema monocromático azul marino), validada con scripts/validate_palette.js

@@ -19,6 +19,10 @@ estabilidad (tolerancia 0.5%, NULL como relleno en vez de 0). Cambios mecánicos
    proyecto, evita depender de scripts multi-sentencia en el cliente de Python.
 3. **2 meses, ambos cerrados** (este cambio) -- ya no hay un "mes en curso" con estatus
    hardcodeado; los dos meses usan el mismo CASE de estabilidad real.
+4. **Plan de cuentas PCSD soportado** (2026-08-17): la clasificación original solo entendía el
+   plan PROA, así que SUPERDOÑA COMERCIAL (SCO1) quedaba fuera del reporte en silencio. Ver la
+   nota larga junto a _FILTRO_CUENTAS_RES más abajo. Verificado que las otras 17 sociedades
+   mantienen exactamente los mismos importes tras el cambio.
 """
 
 import datetime
@@ -26,6 +30,51 @@ import datetime
 from google.cloud import bigquery
 
 from config import SNAPSHOT_DIAS_OBJETIVO, SNAPSHOT_DIAS_LIMITE, UMBRAL_MATERIALIDAD_MXN
+
+# --- Clasificación de cuentas por plan (añadido 2026-08-17) --------------------------------
+# Antes la query solo entendía el plan PROA (cuenta de 10 dígitos, dígito significativo en la
+# posición 4). Consecuencia: SUPERDOÑA COMERCIAL (SCO1) usa el plan PCSD -- cuentas de 6 dígitos
+# rellenadas a 10, dígito significativo en la posición 5 -- así que NINGUNA de sus cuentas de
+# resultados entraba, la sociedad salía con todo en cero y el filtro de "sin actividad reciente"
+# la eliminaba del reporte en silencio. No era poca cosa: en el Excel de finanzas Superdoña tiene
+# del orden de $234M de ingresos.
+#
+# Plan PCSD (posición 5), según el catálogo SKAT de KTOPL='PCSD':
+#   1 Activo · 2 Pasivo · 3 Capital · 9 Saldos iniciales   -> balance, fuera de este reporte
+#   4 Ventas                                               -> INGRESOS
+#   5 Costo de ventas / producción                         -> EGRESOS
+#   6 Descuentos, recargos y gastos generales              -> EGRESOS (ver nota)
+#   7 Comisiones bancarias                                 -> EGRESOS
+#   8 ISR anual                                            -> EGRESOS
+#
+# El dígito 6 es mixto: contiene "DESCUENTOS POR PRONTO PAGO" (0000615000) junto con gastos
+# corrientes (combustibles, reparaciones, recargos). Se mete completo en EGRESOS porque así lo
+# respalda la validación, no por criterio propio: contra el Excel de finanzas de 2024 al corte de
+# junio, Ingresos (dígito 4) sale a 0.0009% del valor publicado y Egresos (dígitos 5+6+7+8) a
+# +0.59% -- misma banda y mismo signo que el resto de sociedades (PAL +0.62%, PAT +1.33%), o sea
+# desviación por apuntes posteriores a la foto, no por clasificación equivocada. Si algún día se
+# decide que los descuentos deben restar de Ingresos en vez de sumar a Egresos, ese cambio hay que
+# volver a validarlo contra el Excel: mueve las dos columnas a la vez.
+#
+# Las tres expresiones viven aquí, como constantes compartidas, y NO repetidas en cada CTE a
+# propósito: la query las usa dos veces (tabla viva y snapshot) y si las dos copias llegaran a
+# divergir el chequeo de estabilidad compararía cosas distintas y marcaría PROVISIONAL sin motivo.
+_SOC_PCSD_SQL = "('SCO1')"
+
+_FILTRO_CUENTAS_RES = f"""REGEXP_CONTAINS(RACCT_AccountNumber, r'^[0-9]{{10}}$')
+    AND (
+      (RBUKRS_CompanyCode IN {_SOC_PCSD_SQL}
+       AND SUBSTR(RACCT_AccountNumber, 5, 1) IN ('4','5','6','7','8'))
+      OR
+      (RBUKRS_CompanyCode NOT IN {_SOC_PCSD_SQL}
+       AND SUBSTR(RACCT_AccountNumber, 4, 1) IN ('4','5'))
+    )"""
+
+_ES_INGRESO = f"""(CASE WHEN sociedad IN {_SOC_PCSD_SQL} THEN SUBSTR(cuenta, 5, 1) = '4'
+                        ELSE SUBSTR(cuenta, 4, 1) = '4' END)"""
+
+_ES_EGRESO = f"""(CASE WHEN sociedad IN {_SOC_PCSD_SQL} THEN SUBSTR(cuenta, 5, 1) IN ('5','6','7','8')
+                       ELSE SUBSTR(cuenta, 4, 1) = '5' END)"""
 
 _HSL_UNPIVOT = """UNPIVOT(valor FOR periodo IN (
     HSL01_TotalLocalCurrency01 AS '1', HSL02_TotalLocalCurrency02 AS '2',
@@ -70,14 +119,13 @@ WITH unpivot_vivo AS (
     valor
   FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext`
   {_HSL_UNPIVOT}
-  WHERE REGEXP_CONTAINS(RACCT_AccountNumber, r'^[0-9]{{10}}$')
-    AND SUBSTR(RACCT_AccountNumber, 4, 1) IN ('4','5')
+  WHERE {_FILTRO_CUENTAS_RES}
 ),
 agg_vivo AS (
   SELECT
     sociedad, anio, periodo,
-    ROUND(SUM(IF(SUBSTR(cuenta,4,1)='4', -valor, 0)), 2) AS ingresos,
-    ROUND(SUM(IF(SUBSTR(cuenta,4,1)='5',  valor, 0)), 2) AS egresos
+    ROUND(SUM(IF({_ES_INGRESO}, -valor, 0)), 2) AS ingresos,
+    ROUND(SUM(IF({_ES_EGRESO},   valor, 0)), 2) AS egresos
   FROM unpivot_vivo
   GROUP BY sociedad, anio, periodo
 ),
@@ -91,14 +139,13 @@ unpivot_snap AS (
     valor
   FROM `proan-quantrue.D10_POSTPROCESSING.{snapshot_table}`
   {_HSL_UNPIVOT}
-  WHERE REGEXP_CONTAINS(RACCT_AccountNumber, r'^[0-9]{{10}}$')
-    AND SUBSTR(RACCT_AccountNumber, 4, 1) IN ('4','5')
+  WHERE {_FILTRO_CUENTAS_RES}
 ),
 agg_snap AS (
   SELECT
     sociedad, anio, periodo,
-    ROUND(SUM(IF(SUBSTR(cuenta,4,1)='4', -valor, 0)), 2) AS ingresos,
-    ROUND(SUM(IF(SUBSTR(cuenta,4,1)='5',  valor, 0)), 2) AS egresos
+    ROUND(SUM(IF({_ES_INGRESO}, -valor, 0)), 2) AS ingresos,
+    ROUND(SUM(IF({_ES_EGRESO},   valor, 0)), 2) AS egresos
   FROM unpivot_snap
   GROUP BY sociedad, anio, periodo
 ),

@@ -83,9 +83,20 @@ SOCIEDADES = {
     "ROMM": "Romo Muñoz Manuel",
     "SAP": "Servicios y Alimentos Proteínicos",
     "FAG": "Ferma Agropecuaria",
-    "PIN": "Sociedad no identificada (PIN)",  # importe residual histórico, revisar si sigue activa
+    "PIN": "Perfil Integral",  # identificada 2026-08-17 vía dm_company ("PERFIL INTEGRAL SA DE CV");
+    # antes figuraba como "Sociedad no identificada (PIN)". Importes mínimos (~$3,500/año) pero
+    # aparece en el reporte, así que conviene que salga con su nombre real.
+    "PFO": "Panita Foods",  # faltaba: en el cuadre de 2024 la sociedad salía como código crudo
+    # "PFO" porque no estaba en este catálogo (sí lo estaba en "Reportes diarios contables").
+    # Sin filas en 2026 (dejó de operar), pero sigue apareciendo al correr años anteriores.
     "SCO1": "Superdoña Comercial",  # confirmado 2026-08-07 vía dm_company (plan PCSD)
 }
+
+# Hueco de cobertura conocido (2026-08-17): "Procesadora Tecnológica de Polímeros", que SÍ es
+# una fila de la tabla de referencia del PDF "Resultado financiero diario.pdf", no existe ni en
+# D20_DIMENSION.dm_company ni en sap_faglflext -- no hay ningún RBUKRS que le corresponda. Este
+# reporte nunca la va a mostrar, y no es un error del código: la sociedad no está replicada en
+# BigQuery. Si finanzas la necesita en el cuadre, hay que pedir su alta a sistemas.
 
 # Mismas fuentes IBM Plex que "Reportes diarios contables" (copiadas a esta carpeta para que
 # esta automatización sea independiente en el despliegue, ver README del repo). Fallback a

@@ -64,7 +64,7 @@ SOCIEDADES = {
     "ROMM": "Romo Muñoz Manuel",
     "SAP": "Servicios y Alimentos Proteínicos",
     "FAG": "Ferma Agropecuaria",
-    "PIN": "Sociedad no identificada (PIN)",
+    "PIN": "Perfil Integral",  # identificada 2026-08-17 vía dm_company ("PERFIL INTEGRAL SA DE CV")
     # Agregados 2026-08-07 al construir este reporte (no estaban en el catálogo original
     # porque no participan en el reporte diario de 2026): confirmados vía dm_company.
     "ADE": "Aves en Desarrollo",

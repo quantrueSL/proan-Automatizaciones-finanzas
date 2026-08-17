@@ -17,9 +17,17 @@ sigue moviéndose. Decisión del usuario (2026-08-17): mantener el snapshot con 
 lugar de perder el chequeo. Si algún día se quita, el reporte lee solo `sap_faglflext` pero
 desaparece la columna de estatus.
 
-**Hueco de cobertura conocido:** la query no captura Ingresos/Egresos de SCO1 (plan de
-cuentas PCSD, posición de dígito distinta a la del resto) -- ver memoria del proyecto
-(`resultado-financiero-mensual-proyecto`) para el detalle, pendiente de decisión.
+**Superdoña Comercial (SCO1): resuelto el 2026-08-17.** Esa sociedad usa el plan de cuentas
+`PCSD` (cuentas de 6 dígitos rellenadas a 10, dígito significativo en la posición 5, no en la 4),
+así que la clasificación original no veía ninguna de sus cuentas de resultados: salía todo en cero
+y el filtro de "sin actividad reciente" la quitaba del reporte **sin ningún aviso**, pese a tener
+del orden de $234M de ingresos. Ya se incluye — el reporte pasó de 17 a 18 sociedades.
+
+Validado contra el Excel de finanzas de 2024 (corte de junio): Ingresos a **0.0009%** del valor
+publicado, Egresos a **+0.59%** — misma banda y mismo signo que el resto de sociedades, o sea
+desviación por apuntes posteriores a la foto, no por clasificación errónea. Comprobado además que
+las otras 17 sociedades conservan **exactamente** los mismos importes. Detalle de la
+correspondencia dígito → Ingresos/Egresos en la nota junto a `_FILTRO_CUENTAS_RES` en `datos.py`.
 
 ## Envío automático a destinatarios
 

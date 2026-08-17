@@ -10,6 +10,32 @@ generar_reporte.py): el "-" delante de cada ROUND(...) es el que trae la query d
 tal cual se recibió. build_query() lo respeta sin tocarlo. fetch_resultado_financiero()
 además devuelve las columnas *_raw (sin negar) para que generar_reporte.py pueda mostrar
 ambas versiones y el usuario decida con el análisis de signo incluido en este mismo cambio.
+
+LIMITACIÓN DE FONDO DE LA COLUMNA `dif` (comprobado 2026-08-17, leer antes de "arreglar"
+cualquier cosa aquí):
+
+`dif` = -SUM(saldo) sobre TODAS las cuentas de la sociedad, y `balance + estado_resultados` es
+esa misma suma, porque el CASE reparte cada cuenta en BAL o RES sin dejar ninguna fuera (el
+`ELSE 'BAL'` absorbe todo lo demás). Como la balanza de comprobación de una sociedad suma cero
+por partida doble, `dif` es 0.00 POR CONSTRUCCIÓN. Medido: máx |dif| = 0.0000 en las 20
+sociedades de 2024 y las 19 de 2026, sin una sola excepción.
+
+Conceptualmente la fórmula es la correcta (utilidad vía cuentas de resultados menos utilidad
+vía cuentas de balance), pero con la balanza completa esas dos cifras son forzosamente iguales,
+así que la columna no puede señalar un descuadre. Los descuadres que sí muestra ZF01 -- en la
+tabla de referencia del PDF, Proteína Animal +425,040.00 y Proan Alimentos -529,200.00 al
+13/12/2024 -- salen de cuentas NO asignadas a la estructura de balance/PyG PROA, que el árbol
+deja fuera y aquí no tienen equivalente.
+
+Para reproducirlos hace falta la asignación cuenta -> nodo de la estructura (tablas T011 /
+FAGL_011 de SAP), y NO está replicada en BigQuery (comprobado: en el proyecto solo hay SKA1,
+SKAT, SKB1 del catálogo de cuentas). O sea: con los datos disponibles hoy este descuadre no se
+puede calcular; no es cuestión de corregir la query. Mientras tanto el PDF lleva una nota de
+alcance (pdf._nota_alcance) para que finanzas no lea un 0.00 como "todo conciliado".
+
+Corolario importante: `dif == 0` NO valida la clasificación BAL/RES. Cualquier partición de las
+cuentas en dos grupos da cero. Si hay que validar la clasificación, hay que hacerlo contra el
+árbol de ZF01 sociedad por sociedad, no con esta columna.
 """
 
 from google.cloud import bigquery
@@ -43,6 +69,14 @@ WITH base AS (
       + HSL15_TotalLocalCurrency15 + HSL16_TotalLocalCurrency16 AS saldo
   FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext`
   WHERE CAST(RYEAR_FiscalYear AS STRING) = v_anio
+    -- Añadidos 2026-08-17: la query original solo filtraba el año. Hoy son redundantes (toda la
+    -- tabla es 0L / 0 / 001, verificado), pero sin ellos cualquier ledger paralelo, registro de
+    -- plan (RRCTY != '0') o versión distinta que llegue a replicarse se sumaría en silencio y
+    -- duplicaría los importes sin que nada fallara. Mismos filtros que ya usa la query de
+    -- "Reportes diarios contables".
+    AND RLDNR_LedgerInGLAccounting = '0L'
+    AND RRCTY_RecordType = '0'
+    AND RVERS_Version = '001'
 )
 SELECT
   sociedad,

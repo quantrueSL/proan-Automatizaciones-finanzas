@@ -299,10 +299,15 @@ class StatusCard(Flowable):
 
 def _status_card(kpis, tolerancia):
     if kpis["conciliado"]:
+        # Texto ajustado 2026-08-17: antes decía "Todas las sociedades conciliaron correctamente"
+        # / "No existen diferencias entre Balance y Estado de Resultados", que afirma más de lo
+        # que el cálculo puede demostrar (ver _nota_alcance y datos.build_query -- Dif. es 0.00
+        # por construcción). Ahora dice exactamente qué quedó comprobado.
         return StatusCard(
             PAGE_W, 15 * mm, True,
-            "Todas las sociedades conciliaron correctamente.",
-            "No existen diferencias entre Balance y Estado de Resultados para la fecha seleccionada.",
+            "La balanza de comprobación cuadra en todas las sociedades.",
+            "Balance y Estado de Resultados arrojan la misma utilidad. Ver el alcance de esta "
+            "comprobación en la nota al pie.",
         )
     return StatusCard(
         PAGE_W, 15 * mm, False,
@@ -431,6 +436,30 @@ def _insights_section(insights):
 
 _STYLE_FOOTER = ParagraphStyle("footer", fontName=FONT_REGULAR, fontSize=7.3,
                                 textColor=C["muted"], leading=10)
+_STYLE_ALCANCE = ParagraphStyle("alcance", fontName=FONT_REGULAR, fontSize=7.3,
+                                 textColor=C["muted"], leading=10.5,
+                                 borderPadding=0, spaceBefore=0)
+
+
+def _nota_alcance():
+    """Nota de alcance de la columna Dif. (añadida 2026-08-17).
+
+    Sin esta nota el reporte se lee como una conciliación que siempre sale bien, cuando en
+    realidad la comprobación no puede fallar: ver la explicación en datos.build_query. Se pone
+    en el PDF, y no solo en el código, porque quien lo recibe es finanzas y es quien podría
+    dar por cuadrado algo que este reporte no es capaz de descuadrar."""
+    texto = (
+        "<b>Alcance de la columna Dif.</b> — compara la utilidad que se deduce de las cuentas de "
+        "balance contra la que se deduce de las de resultados, sobre la balanza completa de cada "
+        "sociedad. Como la balanza suma cero por partida doble y esta consulta clasifica todas las "
+        "cuentas en uno de los dos grupos, Dif. da 0.00 por construcción: confirma que la balanza "
+        "cuadra, pero no puede señalar un descuadre. Los descuadres que sí muestra la transacción "
+        "ZF01 (p. ej. Proteína Animal +$425,040 el 13/12/2024) vienen de cuentas no asignadas a la "
+        "estructura de balance/PyG PROA, y esa asignación no está replicada hoy en BigQuery "
+        "(tablas T011 / FAGL_011). Comprobado el 17/08/2026: máx |Dif.| = 0.0000 en las 20 "
+        "sociedades de 2024 y las 19 de 2026."
+    )
+    return Paragraph(texto, _STYLE_ALCANCE)
 
 
 def _footer(fecha_str, hora_str):
@@ -469,7 +498,9 @@ def build_pdf(df, fecha_str, hora_str, chart_path, chart_ok, output_path):
     # Insights + footer como un solo bloque: si no caben en lo que queda de la página, se
     # empujan juntos a la siguiente en vez de partir el título de sus bullets (visto en la
     # primera versión: "Insights del día" quedaba solo al fondo de la página 1).
-    cierre = _insights_section(insights) + [Spacer(1, 6), _footer(fecha_str, hora_str)]
+    cierre = _insights_section(insights) + [
+        Spacer(1, 6), _nota_alcance(), Spacer(1, 5), _footer(fecha_str, hora_str),
+    ]
     story.append(KeepTogether(cierre))
 
     doc.build(story)
