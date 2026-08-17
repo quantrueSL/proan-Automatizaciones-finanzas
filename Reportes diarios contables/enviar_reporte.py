@@ -6,10 +6,15 @@ Usa la API de SendGrid, igual que la automatización de Cambio de Divisa
 (ver "Cambio divisa/divisa.py"), en vez de SMTP con contraseña de aplicación de
 Office 365 (bloqueada mientras no se configure una app password ahí).
 
-No duplica cálculos: reutiliza fetch_cuenta/fetch_descuentos (datos.py),
-build_chart/build_chart_descuentos (graficos.py) y _money/_pct (pdf.py) — las mismas
-funciones que ya arman las cards y los gráficos del PDF. El PDF en sí no se toca aquí,
-solo se adjunta.
+No duplica cálculos: reutiliza fetch_cuenta/fetch_descuentos/fetch_mermas_ratio/
+a_plantilla_importe (datos.py), build_chart/build_chart_ratio (graficos.py) y _money/_pct
+(pdf.py) — las mismas funciones que ya arman las cards y los gráficos del PDF. El PDF en sí
+no se toca aquí, solo se adjunta.
+
+Las secciones del cuerpo van en el MISMO orden que las páginas del PDF, incluidas las dos
+formas (importe y razón) de Mermas y de Descuentos — si se agrega o quita una sección en
+generar_reporte.py hay que reflejarlo en _preparar_resumenes() o el correo queda desalineado
+con su adjunto.
 
 Destinatarios: cascada Firestore -> REPORTE_CUENTAS_EMAIL_TO -> default hardcodeado (ver
 resolve_email_recipients() y config.DEFAULT_EMAIL_RECIPIENTS) -- mismo patrón que
@@ -46,9 +51,12 @@ from config import (
     COLORS, CUENTAS, CUENTAS_ACTIVAS, CUENTAS_SOLO_DEBE, DEFAULT_EMAIL_RECIPIENTS,
     EMAIL_ASUNTO_TEMPLATE, EMAIL_CUERPO_TEMPLATE, FIRESTORE_DATABASE_ID,
     FIRESTORE_LISTS_COLLECTION, OUTPUT_DIR, PROJECT_ID, REPORTE_CUENTAS_LIST_ID, SOCIEDADES,
+    TITULOS_SECCION,
 )
-from datos import fetch_cuenta, fetch_descuentos, fetch_sociedades
-from graficos import build_chart, build_chart_descuentos
+from datos import (
+    fetch_cuenta, fetch_descuentos, fetch_sociedades, fetch_mermas_ratio, a_plantilla_importe,
+)
+from graficos import build_chart, build_chart_descuentos, build_chart_ratio
 from pdf import _money, _pct
 
 load_dotenv()
@@ -145,67 +153,95 @@ def _preparar_resumenes(client, hoy):
     hist_years = list(range(current_year - 4, current_year + 1))
     sociedades = fetch_sociedades(client)
 
-    secciones = []
-    for nombre_cuenta in CUENTAS_ACTIVAS:
-        raccts = CUENTAS[nombre_cuenta]
-        _, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades,
-                              solo_debe=nombre_cuenta in CUENTAS_SOLO_DEBE)
-
-        chart_path = os.path.join(OUTPUT_DIR, f"_chart_{nombre_cuenta.replace(' ', '_')}.png")
-        build_chart(df, nombre_cuenta, current_year, prior_year, chart_path)
-
+    def _cards_importe(df):
         total_actual = df["actual"].sum()
         total_anterior = df["anterior"].sum()
         diferencia = total_actual - total_anterior
-        cards = [
+        return [
             (f"Total {current_year} (hoy)", _money(total_actual), COLORS["header_bg"]),
             (f"Total {prior_year}", _money(total_anterior), COLORS["header_bg"]),
             ("Diferencia total", _money(diferencia), _color_por_signo(diferencia)),
         ]
+
+    def _cards_ratio(df, col_base, col_cuenta, label_base, label_cuenta):
+        base_total = df[f"{col_base}_actual"].sum()
+        cuenta_total = df[f"{col_cuenta}_actual"].sum()
+        pct_global = (cuenta_total / base_total) if base_total else float("nan")
+        return [
+            (f"{label_base} total {current_year} (hoy)", _money(base_total), COLORS["header_bg"]),
+            (f"{label_cuenta} total {current_year} (hoy)", _money(cuenta_total), COLORS["header_bg"]),
+            (f"% Global ({label_cuenta}/{label_base})", _pct(pct_global), COLORS["header_bg"]),
+        ]
+
+    secciones = []
+    for nombre_cuenta in CUENTAS_ACTIVAS:
+        raccts = CUENTAS[nombre_cuenta]
+        titulo = TITULOS_SECCION.get(nombre_cuenta, nombre_cuenta)
+        _, df = fetch_cuenta(client, raccts, hist_years, current_year, prior_year, sociedades,
+                              solo_debe=nombre_cuenta in CUENTAS_SOLO_DEBE)
+
+        chart_path = os.path.join(OUTPUT_DIR, f"_chart_{nombre_cuenta.replace(' ', '_')}.png")
+        build_chart(df, titulo, current_year, prior_year, chart_path)
+
         secciones.append({
-            "titulo": nombre_cuenta,
-            "cards": cards,
+            "titulo": titulo,
+            "cards": _cards_importe(df),
             "chart_path": chart_path,
             "cid": f"grafico_{_slug(nombre_cuenta)}",
         })
 
-    df_desc = fetch_descuentos(client, current_year, prior_year, SOCIEDADES)[1]
-    chart_path_desc = os.path.join(OUTPUT_DIR, "_chart_Descuentos_y_Bonificaciones.png")
-    build_chart_descuentos(df_desc, current_year, prior_year, chart_path_desc)
-
-    ingresos_total = df_desc["ingresos_actual"].sum()
-    descuentos_total = df_desc["descuentos_actual"].sum()
-    pct_global = (descuentos_total / ingresos_total) if ingresos_total else float("nan")
+    # Mermas — % sobre Costo Total: la segunda de las dos formas de la misma cuenta, en el
+    # mismo orden que el PDF (importe primero, razón después). Ver TITULOS_SECCION en config.py.
+    titulo_mermas_ratio = TITULOS_SECCION["Mermas ratio"]
+    df_mermas_ratio = fetch_mermas_ratio(
+        client, CUENTAS["Mermas"], current_year, prior_year, sociedades
+    )[1]
+    chart_path_mermas_ratio = os.path.join(OUTPUT_DIR, "_chart_Mermas_ratio.png")
+    build_chart_ratio(df_mermas_ratio, titulo_mermas_ratio, current_year, prior_year,
+                      chart_path_mermas_ratio, col_cuenta="mermas")
     secciones.append({
-        "titulo": "Descuentos y Bonificaciones",
-        "cards": [
-            (f"Ingresos totales {current_year} (hoy)", _money(ingresos_total), COLORS["header_bg"]),
-            (f"Descuentos totales {current_year} (hoy)", _money(descuentos_total), COLORS["header_bg"]),
-            ("% Global (Descuentos/Ingresos)", _pct(pct_global), COLORS["header_bg"]),
-        ],
+        "titulo": titulo_mermas_ratio,
+        "cards": _cards_ratio(df_mermas_ratio, "costo", "mermas", "Costo Total", "Mermas"),
+        "chart_path": chart_path_mermas_ratio,
+        "cid": "grafico_mermas_ratio",
+    })
+
+    df_desc = fetch_descuentos(client, current_year, prior_year, SOCIEDADES)[1]
+
+    titulo_desc_importe = TITULOS_SECCION["Descuentos importe"]
+    df_desc_importe = a_plantilla_importe(df_desc, "descuentos")
+    chart_path_desc_importe = os.path.join(OUTPUT_DIR, "_chart_Descuentos_importe.png")
+    build_chart(df_desc_importe, titulo_desc_importe, current_year, prior_year,
+                chart_path_desc_importe)
+    secciones.append({
+        "titulo": titulo_desc_importe,
+        "cards": _cards_importe(df_desc_importe),
+        "chart_path": chart_path_desc_importe,
+        "cid": "grafico_descuentos_importe",
+    })
+
+    titulo_desc_ratio = TITULOS_SECCION["Descuentos ratio"]
+    chart_path_desc = os.path.join(OUTPUT_DIR, "_chart_Descuentos_y_Bonificaciones.png")
+    build_chart_descuentos(df_desc, current_year, prior_year, chart_path_desc,
+                           titulo=titulo_desc_ratio)
+    secciones.append({
+        "titulo": titulo_desc_ratio,
+        "cards": _cards_ratio(df_desc, "ingresos", "descuentos", "Ingresos", "Descuentos"),
         "chart_path": chart_path_desc,
         "cid": "grafico_descuentos_y_bonificaciones",
     })
 
-    # Variación de Precios: mismo mecanismo que CUENTAS_ACTIVAS (fetch_cuenta + build_chart),
-    # pero usa SOCIEDADES (no dm_company) y se agrega al final, después de Descuentos, para
-    # que el orden coincida con el del PDF (ver nota de validación en config.py).
+    # Variación de Precios: mismo formato que el resto de cuentas (año en curso vs. año
+    # anterior), por decisión del usuario -- ver la nota de esta cuenta en config.py. Usa
+    # SOCIEDADES (no dm_company) y va al final, igual que en el PDF.
     raccts_precios = CUENTAS["Variación de Precios"]
-    _, df_precios = fetch_cuenta(client, raccts_precios, hist_years, current_year, prior_year, SOCIEDADES)
+    _, df_precios = fetch_cuenta(client, raccts_precios, hist_years, current_year, prior_year,
+                                 SOCIEDADES)
     chart_path_precios = os.path.join(OUTPUT_DIR, "_chart_Variacion_de_Precios.png")
     build_chart(df_precios, "Variación de Precios", current_year, prior_year, chart_path_precios)
-
-    total_actual_precios = df_precios["actual"].sum()
-    total_anterior_precios = df_precios["anterior"].sum()
-    # Mismo patrón de cards que Gastos no Deducibles (formato único): diferencia = actual - anterior.
-    diferencia_precios = total_actual_precios - total_anterior_precios
     secciones.append({
         "titulo": "Variación de Precios",
-        "cards": [
-            (f"Total {current_year} (hoy)", _money(total_actual_precios), COLORS["header_bg"]),
-            (f"Total {prior_year}", _money(total_anterior_precios), COLORS["header_bg"]),
-            ("Diferencia total", _money(diferencia_precios), _color_por_signo(diferencia_precios)),
-        ],
+        "cards": _cards_importe(df_precios),
         "chart_path": chart_path_precios,
         "cid": "grafico_variacion_de_precios",
     })

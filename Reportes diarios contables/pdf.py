@@ -64,6 +64,10 @@ _STYLE_TD_MONO = ParagraphStyle("td_mono", parent=_STYLE_TD, fontName=FONT_MONO,
 # TOTAL GENERAL (donde vive el valor más grande de cada columna) eso alcanzaba a envolver
 # a dos líneas; un punto menos de tamaño lo evita sin verse desigual junto al resto.
 _STYLE_TD_MONO_BOLD = ParagraphStyle("td_mono_bold", parent=_STYLE_TD_MONO, fontName=FONT_MONO_BOLD, fontSize=6.2)
+# Nota al pie de sección (build_section acepta `nota`). Hoy solo la usa Variación de Precios,
+# para explicar por qué esa cuenta muestra tantos ±100% sin cambiarle el formato.
+_STYLE_NOTA = ParagraphStyle("nota", fontName=FONT_REGULAR, fontSize=7,
+                              textColor=C["muted"], leading=9.5, alignment=TA_LEFT)
 
 
 def _signo_color(v):
@@ -161,7 +165,16 @@ class RoundedHeader(Flowable):
         c.setFont(FONT_BOLD, 17)
         c.setFillColor(rl_colors.white)
         c.drawString(16, self.height - 30, self.titulo.upper())
-        c.setFont(FONT_REGULAR, 9)
+
+        # El subtítulo se encoge hasta caber dentro de la banda en vez de derramarse fuera
+        # (visto con Mermas — % sobre Costo Total, cuyo subtítulo nombra dos juegos de cuentas
+        # y salía cortado a la mitad de "MXN"). Mismo criterio que StatTile con las cifras
+        # largas: reducir tamaño antes que recortar el texto.
+        max_sub_width = self.width - 32
+        sub_size = 9
+        while sub_size > 6 and pdfmetrics.stringWidth(self.subtitulo, FONT_REGULAR, sub_size) > max_sub_width:
+            sub_size -= 0.25
+        c.setFont(FONT_REGULAR, sub_size)
         c.setFillColor(rl_colors.HexColor("#c9d6e5"))
         c.drawString(16, self.height - 48, self.subtitulo)
         c.restoreState()
@@ -281,7 +294,11 @@ def _tabla_sociedades(df, current_year, prior_year):
     return tbl
 
 
-def build_section(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year, prior_year):
+def build_section(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year, prior_year,
+                  nota=None):
+    """nota: texto opcional al pie de la sección. Se usa en Variación de Precios para advertir
+    de por qué esa cuenta muestra tantos ±100% (el cierre anual barra el año previo, ver
+    config.py) sin cambiarle el formato, que es igual al del resto de cuentas."""
     flow = []
     flow.extend(_header(cuenta_nombre, raccts, fecha_str))
     flow.append(Spacer(1, 7))
@@ -290,22 +307,29 @@ def build_section(cuenta_nombre, raccts, df, chart_path, fecha_str, current_year
     flow.append(_chart_panel(chart_path))
     flow.append(Spacer(1, 8))
     flow.append(_tabla_sociedades(df, current_year, prior_year))
+    if nota:
+        flow.append(Spacer(1, 5))
+        flow.append(Paragraph(nota, _STYLE_NOTA))
     return flow
 
 
-def _header_descuentos(fecha_str):
-    subtitulo = f"CUENTAS DE VENTAS (RACCT 000401%)  |  AL DÍA DE HOY ({fecha_str}), MXN"
-    return [RoundedHeader(180 * mm, 26 * mm, "Descuentos y Bonificaciones", subtitulo)]
+def _header_ratio(titulo, subtitulo_fuente, fecha_str):
+    subtitulo = f"{subtitulo_fuente}  |  AL DÍA DE HOY ({fecha_str}), MXN"
+    return [RoundedHeader(180 * mm, 26 * mm, titulo, subtitulo)]
 
 
-def _stat_tiles_descuentos(ingresos_total, descuentos_total, current_year):
-    pct = (descuentos_total / ingresos_total) if ingresos_total else float("nan")
+def _stat_tiles_ratio(base_total, cuenta_total, current_year, label_base, label_cuenta,
+                      label_base_total, label_cuenta_total):
+    """label_*_total: cómo se nombra el total en la tarjeta. Va aparte de label_* (que rotula
+    las columnas de la tabla) porque no siempre es "<label> totales": "Costo Total totales"
+    se leería mal, ahí el rótulo correcto es simplemente "Costo Total"."""
+    pct = (cuenta_total / base_total) if base_total else float("nan")
 
     tile_w, tile_h, gap = 58 * mm, 22 * mm, 2 * mm
     tiles_data = [
-        (f"Ingresos totales {current_year} (hoy)", _money(ingresos_total), C["text_primary"]),
-        (f"Descuentos totales {current_year} (hoy)", _money(descuentos_total), C["text_primary"]),
-        ("% Global (Descuentos/Ingresos)", _pct(pct), C["text_primary"]),
+        (f"{label_base_total} {current_year} (hoy)", _money(base_total), C["text_primary"]),
+        (f"{label_cuenta_total} {current_year} (hoy)", _money(cuenta_total), C["text_primary"]),
+        (f"% Global ({label_cuenta}/{label_base})", _pct(pct), C["text_primary"]),
     ]
     tiles = [StatTile(tile_w, tile_h, label, value, color) for label, value, color in tiles_data]
     tbl = Table([tiles], colWidths=[tile_w] * 3, rowHeights=[tile_h])
@@ -320,36 +344,36 @@ def _p(text, style):
     return Paragraph(str(text), style)
 
 
-def _tabla_descuentos(df, current_year, prior_year):
-    header = ["Sociedad", f"Ingresos {prior_year}", f"Ingresos {current_year} (HOY)",
-              f"Descuentos {prior_year}", f"Descuentos {current_year} (HOY)",
+def _tabla_ratio(df, current_year, prior_year, label_base, label_cuenta, col_base, col_cuenta):
+    header = ["Sociedad", f"{label_base} {prior_year}", f"{label_base} {current_year} (HOY)",
+              f"{label_cuenta} {prior_year}", f"{label_cuenta} {current_year} (HOY)",
               f"% {prior_year}", f"% {current_year} (HOY)"]
     rows = [[_p(header[0], _STYLE_TH_LEFT)] + [_p(h, _STYLE_TH) for h in header[1:]]]
 
-    df_ordenado = df.sort_values("ingresos_actual", ascending=False, key=abs)
+    df_ordenado = df.sort_values(f"{col_base}_actual", ascending=False, key=abs)
     for _, r in df_ordenado.iterrows():
         rows.append([
             _p(r["nombre_sociedad"], _STYLE_TD_LEFT),
-            _p(_money(r["ingresos_anterior"]), _STYLE_TD_MONO),
-            _p(_money(r["ingresos_actual"]), _STYLE_TD_MONO),
-            _p(_money(r["descuentos_anterior"]), _STYLE_TD_MONO),
-            _p(_money(r["descuentos_actual"]), _STYLE_TD_MONO),
+            _p(_money(r[f"{col_base}_anterior"]), _STYLE_TD_MONO),
+            _p(_money(r[f"{col_base}_actual"]), _STYLE_TD_MONO),
+            _p(_money(r[f"{col_cuenta}_anterior"]), _STYLE_TD_MONO),
+            _p(_money(r[f"{col_cuenta}_actual"]), _STYLE_TD_MONO),
             _p(_pct(r["pct_anterior"]), _STYLE_TD_MONO),
             _p(_pct(r["pct_actual"]), _STYLE_TD_MONO),
         ])
 
-    total_ingresos_actual = df["ingresos_actual"].sum()
-    total_ingresos_anterior = df["ingresos_anterior"].sum()
-    total_descuentos_actual = df["descuentos_actual"].sum()
-    total_descuentos_anterior = df["descuentos_anterior"].sum()
-    total_pct_actual = (total_descuentos_actual / total_ingresos_actual) if total_ingresos_actual else float("nan")
-    total_pct_anterior = (total_descuentos_anterior / total_ingresos_anterior) if total_ingresos_anterior else float("nan")
+    total_base_actual = df[f"{col_base}_actual"].sum()
+    total_base_anterior = df[f"{col_base}_anterior"].sum()
+    total_cuenta_actual = df[f"{col_cuenta}_actual"].sum()
+    total_cuenta_anterior = df[f"{col_cuenta}_anterior"].sum()
+    total_pct_actual = (total_cuenta_actual / total_base_actual) if total_base_actual else float("nan")
+    total_pct_anterior = (total_cuenta_anterior / total_base_anterior) if total_base_anterior else float("nan")
     rows.append([
         _p("TOTAL GENERAL", _STYLE_TD_BOLD_LEFT),
-        _p(_money(total_ingresos_anterior), _STYLE_TD_MONO_BOLD),
-        _p(_money(total_ingresos_actual), _STYLE_TD_MONO_BOLD),
-        _p(_money(total_descuentos_anterior), _STYLE_TD_MONO_BOLD),
-        _p(_money(total_descuentos_actual), _STYLE_TD_MONO_BOLD),
+        _p(_money(total_base_anterior), _STYLE_TD_MONO_BOLD),
+        _p(_money(total_base_actual), _STYLE_TD_MONO_BOLD),
+        _p(_money(total_cuenta_anterior), _STYLE_TD_MONO_BOLD),
+        _p(_money(total_cuenta_actual), _STYLE_TD_MONO_BOLD),
         _p(_pct(total_pct_anterior), _STYLE_TD_MONO_BOLD),
         _p(_pct(total_pct_actual), _STYLE_TD_MONO_BOLD),
     ])
@@ -380,16 +404,48 @@ def _tabla_descuentos(df, current_year, prior_year):
     return tbl
 
 
-def build_section_descuentos(df, chart_path, fecha_str, current_year, prior_year):
+def build_section_ratio(titulo, subtitulo_fuente, label_base, label_cuenta, df, chart_path,
+                        fecha_str, current_year, prior_year, col_base, col_cuenta,
+                        label_base_total=None, label_cuenta_total=None):
+    """Plantilla B: una cuenta comparada contra su base, en los dos periodos. Era el formato
+    exclusivo de Descuentos y Bonificaciones (descuentos/ingresos); se generalizó para que
+    Mermas pueda emitirse igual contra el Costo Total (ver TITULOS_SECCION en config.py).
+    df debe traer {col_base}_actual/_anterior, {col_cuenta}_actual/_anterior, pct_actual,
+    pct_anterior y nombre_sociedad."""
     flow = []
-    flow.extend(_header_descuentos(fecha_str))
+    flow.extend(_header_ratio(titulo, subtitulo_fuente, fecha_str))
     flow.append(Spacer(1, 7))
-    flow.append(_stat_tiles_descuentos(df["ingresos_actual"].sum(), df["descuentos_actual"].sum(), current_year))
+    flow.append(_stat_tiles_ratio(df[f"{col_base}_actual"].sum(), df[f"{col_cuenta}_actual"].sum(),
+                                  current_year, label_base, label_cuenta,
+                                  label_base_total or f"{label_base} totales",
+                                  label_cuenta_total or f"{label_cuenta} totales"))
     flow.append(Spacer(1, 8))
     flow.append(_chart_panel(chart_path))
     flow.append(Spacer(1, 8))
-    flow.append(_tabla_descuentos(df, current_year, prior_year))
+    flow.append(_tabla_ratio(df, current_year, prior_year, label_base, label_cuenta,
+                             col_base, col_cuenta))
     return flow
+
+
+def build_section_descuentos(df, chart_path, fecha_str, current_year, prior_year,
+                             titulo="Descuentos y Bonificaciones"):
+    return build_section_ratio(
+        titulo, "CUENTAS DE VENTAS (RACCT 000401%)", "Ingresos", "Descuentos",
+        df, chart_path, fecha_str, current_year, prior_year,
+        col_base="ingresos", col_cuenta="descuentos",
+    )
+
+
+def build_section_mermas_ratio(df, chart_path, fecha_str, current_year, prior_year, raccts,
+                               titulo="Mermas — % sobre Costo Total"):
+    subtitulo = (f"MERMAS {', '.join(raccts)} (SOLO DEBE)  /  COSTO TOTAL: "
+                 f"GRUPO CTOS (RACCT 000504%)")
+    return build_section_ratio(
+        titulo, subtitulo, "Costo Total", "Mermas",
+        df, chart_path, fecha_str, current_year, prior_year,
+        col_base="costo", col_cuenta="mermas",
+        label_base_total="Costo Total", label_cuenta_total="Mermas totales",
+    )
 
 
 def build_pdf(sections, output_path):

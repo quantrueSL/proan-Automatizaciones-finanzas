@@ -6,6 +6,7 @@ import pandas as pd
 
 from config import (
     TABLE_FQN, LEDGER, RECORD_TYPE, VERSION, UMBRAL_MATERIALIDAD_MXN, RACCT_PREFIX_DESCUENTOS,
+    RACCT_PREFIX_COSTOS,
 )
 
 _HSL_COLS = ["HSLVT_BalanceCarriedForwardLocalCurrency"] + [
@@ -165,6 +166,112 @@ def fetch_descuentos(client: bigquery.Client, current_year, prior_year, sociedad
     wide["pct_anterior"] = wide.apply(
         lambda r: (r["descuentos_anterior"] / r["ingresos_anterior"])
         if abs(r["ingresos_anterior"]) >= UMBRAL_MATERIALIDAD_MXN else float("nan"),
+        axis=1,
+    )
+    return sql, wide
+
+
+def a_plantilla_importe(df, col):
+    """Convierte un DataFrame de razón (el de fetch_descuentos o fetch_mermas_ratio) al
+    formato de Plantilla A -- actual/anterior/diferencia/pct_variacion -- para poder emitir
+    la MISMA cuenta también como importe suelto, sin volver a consultar BigQuery.
+
+    col: prefijo de las columnas a promover a actual/anterior ("descuentos", "mermas").
+
+    El filtro de materialidad se re-aplica sobre la columna promovida, no sobre la que traía
+    el df original: en la variante de razón basta con que la base sea material para que la
+    sociedad aparezca (una sociedad con ingresos grandes y cero descuentos es informativa
+    ahí, porque su % es 0.00%), pero en la variante de importe esa misma fila sería una fila
+    de puros ceros. Mismo criterio que fetch_cuenta."""
+    out = df[["sociedad", "nombre_sociedad"]].copy()
+    out["actual"] = df[f"{col}_actual"]
+    out["anterior"] = df[f"{col}_anterior"]
+    out = out[(out["actual"].abs() >= UMBRAL_MATERIALIDAD_MXN) |
+              (out["anterior"].abs() >= UMBRAL_MATERIALIDAD_MXN)].reset_index(drop=True)
+    out["diferencia"] = out["actual"] - out["anterior"]
+    out["pct_variacion"] = out.apply(
+        lambda r: (r["diferencia"] / abs(r["anterior"]))
+        if abs(r["anterior"]) >= UMBRAL_MATERIALIDAD_MXN else float("nan"),
+        axis=1,
+    )
+    return out
+
+
+def build_query_mermas_ratio(raccts_mermas, years):
+    """Mermas y su base (Costo Total) en una sola pasada por sap_faglflext -- misma tabla y
+    mismos filtros de ledger que el resto del reporte, sin tocar ninguna otra fuente.
+
+    Dos sumas con criterios distintos a propósito, cada una como su proceso manual:
+    - mermas: solo Debe (DRCRK='S'), igual que build_query(solo_debe=True) -- ver la nota
+      larga ahí sobre por qué el neto no sirve para esta cuenta.
+    - costo: neto, sobre las cuentas del grupo CTOS (prefijo RACCT_PREFIX_COSTOS). El nodo
+      "Costos" del árbol de ZF01 es un saldo neto, no una suma de Debe.
+    """
+    raccts_list = ", ".join(f"'{r}'" for r in raccts_mermas)
+    years_list = ", ".join(str(y) for y in years)
+    n = len(RACCT_PREFIX_COSTOS)
+    es_costo = f"SUBSTR(RACCT_AccountNumber, 1, {n}) = '{RACCT_PREFIX_COSTOS}'"
+    return f"""
+SELECT
+  RBUKRS_CompanyCode AS sociedad,
+  RYEAR_FiscalYear AS anio,
+  ROUND(SUM(CASE WHEN RACCT_AccountNumber IN ({raccts_list})
+                  AND DRCRK_DebitCreditIndicator = 'S'
+                 THEN {_HSL_SUM_EXPR} ELSE 0 END), 2) AS mermas,
+  ROUND(SUM(CASE WHEN {es_costo} THEN {_HSL_SUM_EXPR} ELSE 0 END), 2) AS costo
+FROM {TABLE_FQN}
+WHERE (RACCT_AccountNumber IN ({raccts_list}) OR {es_costo})
+  AND RYEAR_FiscalYear IN ({years_list})
+  AND RLDNR_LedgerInGLAccounting = '{LEDGER}'
+  AND RRCTY_RecordType = '{RECORD_TYPE}'
+  AND RVERS_Version = '{VERSION}'
+GROUP BY sociedad, anio
+ORDER BY sociedad, anio
+"""
+
+
+def fetch_mermas_ratio(client: bigquery.Client, raccts_mermas, current_year, prior_year,
+                       sociedades):
+    """Mermas contra Costo Total por sociedad, para el año actual y el anterior. Devuelve el
+    mismo juego de columnas que fetch_descuentos pero con el par costo/mermas en vez de
+    ingresos/descuentos, para que pdf.build_section_ratio y graficos.build_chart_ratio sirvan
+    igual para las dos (ver TITULOS_SECCION en config.py)."""
+    years = [prior_year, current_year]
+    sql = build_query_mermas_ratio(raccts_mermas, years)
+    df = client.query(sql).to_dataframe()
+    df["mermas"] = df["mermas"].astype(float)
+    df["costo"] = df["costo"].astype(float)
+
+    wide = df.pivot(index="sociedad", columns="anio", values=["costo", "mermas"])
+    wide.columns = [f"{metric}_{int(anio)}" for metric, anio in wide.columns]
+    wide = wide.reset_index().fillna(0.0)
+
+    for col in (f"costo_{current_year}", f"costo_{prior_year}",
+                f"mermas_{current_year}", f"mermas_{prior_year}"):
+        if col not in wide.columns:
+            wide[col] = 0.0
+
+    wide["nombre_sociedad"] = wide["sociedad"].map(sociedades).fillna(wide["sociedad"])
+    wide["costo_actual"] = wide[f"costo_{current_year}"]
+    wide["costo_anterior"] = wide[f"costo_{prior_year}"]
+    wide["mermas_actual"] = wide[f"mermas_{current_year}"]
+    wide["mermas_anterior"] = wide[f"mermas_{prior_year}"]
+
+    wide = wide[
+        (wide["costo_actual"].abs() >= UMBRAL_MATERIALIDAD_MXN)
+        | (wide["mermas_actual"].abs() >= UMBRAL_MATERIALIDAD_MXN)
+        | (wide["costo_anterior"].abs() >= UMBRAL_MATERIALIDAD_MXN)
+        | (wide["mermas_anterior"].abs() >= UMBRAL_MATERIALIDAD_MXN)
+    ].reset_index(drop=True)
+
+    wide["pct_actual"] = wide.apply(
+        lambda r: (r["mermas_actual"] / r["costo_actual"])
+        if abs(r["costo_actual"]) >= UMBRAL_MATERIALIDAD_MXN else float("nan"),
+        axis=1,
+    )
+    wide["pct_anterior"] = wide.apply(
+        lambda r: (r["mermas_anterior"] / r["costo_anterior"])
+        if abs(r["costo_anterior"]) >= UMBRAL_MATERIALIDAD_MXN else float("nan"),
         axis=1,
     )
     return sql, wide

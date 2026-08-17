@@ -2,9 +2,43 @@
 
 ## Alcance
 
-Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext`, un PDF con 4 secciones:
-Gastos no Deducibles, Mermas, Descuentos y Bonificaciones, Variación de Precios. Envía el PDF
-por correo con un resumen visual (tarjetas + gráfico) directamente en el cuerpo del mensaje.
+Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext` (única fuente de importes),
+un PDF de 6 secciones -- una por página -- y lo envía por correo con un resumen visual
+(tarjetas + gráfico) en el cuerpo del mensaje.
+
+Cubre 4 cuentas, pero Mermas y Descuentos salen cada una en **dos formas** porque no está
+decidido cuál es el criterio correcto y finanzas tiene que elegir viéndolas lado a lado:
+
+| # | Sección | Forma |
+|---|---|---|
+| 1 | Gastos no Deducibles | Importe |
+| 2 | Mermas — Importe | Importe |
+| 3 | Mermas — % sobre Costo Total | Razón |
+| 4 | Descuentos y Bonificaciones — Importe | Importe |
+| 5 | Descuentos y Bonificaciones — % sobre Ingresos | Razón |
+| 6 | Variación de Precios | Importe |
+
+- **Importe** (Plantilla A): solo la cantidad económica de la cuenta en cada sociedad, año
+  actual vs. anterior, diferencia y % de variación entre periodos.
+- **Razón** (Plantilla B): la cuenta contra su base en los dos periodos --- Mermas sobre el
+  Costo Total (grupo de cuentas CTOS, `RACCT 000504%`), Descuentos sobre los Ingresos.
+
+Las cuatro cuentas usan las mismas columnas de periodo (año en curso vs. año anterior), por
+decisión explícita del usuario. En **Variación de Precios** eso tiene una salvedad importante,
+avisada y aceptada: el cierre anual reclasifica esa cuenta y borra del ejercicio cerrado
+movimientos que sí existían cuando el año estaba abierto, así que la mayoría de sociedades tiene
+saldo cero en el año previo y su % sale como ±100.0%. La sección lleva `NOTA_PRECIOS` al pie del
+PDF explicándolo; la evidencia (comparación contra el árbol de ZF01 de diciembre de 2024) está
+junto a esa constante en `config.py`. La columna fiable de esa cuenta es la del año en curso.
+
+Las dos formas de una cuenta salen de la **misma** consulta: no se pregunta a BigQuery dos
+veces por cuenta. Cuando finanzas decida, se quita la sección que sobre de
+`generar_reporte.py` y `enviar_reporte.py` (y su entrada en `TITULOS_SECCION`); nada más.
+
+El denominador del Costo Total quedó confirmado el 2026-08-17 contra el Excel de finanzas
+(cuadra al peso en 9 de 12 sociedades comparables) --- ver la nota larga junto a
+`RACCT_PREFIX_COSTOS` en `config.py`, que además documenta que las columnas históricas de ese
+Excel están corridas un año.
 
 ## Envío automático a destinatarios
 

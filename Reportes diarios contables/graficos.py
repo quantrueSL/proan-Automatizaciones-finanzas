@@ -132,24 +132,29 @@ def build_chart(df, cuenta_nombre, current_year, prior_year, out_path):
     return truncado
 
 
-def build_chart_descuentos(df, current_year, prior_year, out_path):
-    """Descuentos 2025 vs 2026 (NO Ingresos): Ingresos vive en una escala miles de veces
-    mayor que Descuentos (miles de millones vs. cientos de millones), así que graficarlos
-    juntos aplastaba las barras de Descuentos y la línea de % quedaba pegada a cero e
-    ilegible. Las cards y la tabla siguen mostrando Ingresos/Descuentos/% -- esto es
-    solo el gráfico.
+def build_chart_ratio(df, titulo, current_year, prior_year, out_path, col_cuenta):
+    """Grafica SOLO la cuenta (Descuentos, Mermas), nunca su base: la base vive en una escala
+    miles de veces mayor (miles de millones vs. cientos de millones), así que graficarlas
+    juntas aplastaba las barras de la cuenta y dejaba la línea de % pegada a cero e ilegible.
+    Las cards y la tabla sí siguen mostrando base/cuenta/% -- esto es solo el gráfico.
 
     Se arma un DataFrame "traducido" a la forma genérica de build_chart
     (actual/anterior/pct_variacion) y se delega ahí -- misma función, mismo estilo, que
     Gastos no Deducibles y Variación de Precios (familia visual única)."""
     shim = df[["nombre_sociedad"]].copy()
-    shim["actual"] = df["descuentos_actual"]
-    shim["anterior"] = df["descuentos_anterior"]
+    shim["actual"] = df[f"{col_cuenta}_actual"]
+    shim["anterior"] = df[f"{col_cuenta}_anterior"]
     diferencia = shim["actual"] - shim["anterior"]
-    # % Variación de Descuentos entre periodos (no Descuentos/Ingresos). Mismo criterio de
+    # % Variación de la cuenta entre periodos (no cuenta/base). Mismo criterio de
     # materialidad que el resto del reporte: base ~0 -> NaN -> build_chart la dibuja como
     # hueco + "N/A" en vez de una división por cero.
     shim["pct_variacion"] = np.where(
         shim["anterior"].abs() < UMBRAL_MATERIALIDAD_MXN, np.nan, diferencia / shim["anterior"].abs()
     )
-    return build_chart(shim, "Descuentos y Bonificaciones", current_year, prior_year, out_path)
+    return build_chart(shim, titulo, current_year, prior_year, out_path)
+
+
+def build_chart_descuentos(df, current_year, prior_year, out_path,
+                           titulo="Descuentos y Bonificaciones"):
+    return build_chart_ratio(df, titulo, current_year, prior_year, out_path,
+                             col_cuenta="descuentos")

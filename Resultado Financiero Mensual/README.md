@@ -8,6 +8,15 @@ Ambos meses llevan un chequeo de estabilidad contra un snapshot de ~14 días atr
 cierres de SAP siguen recibiendo ajustes 2-4 semanas) -- el mes marcado `PROVISIONAL` puede
 seguir moviéndose, `SIN_REFERENCIA` significa que no había snapshot con qué comparar.
 
+**Fuente de datos (aclaración, 2026-08-17):** todos los importes que se reportan salen
+exclusivamente de `proan-quantrue.D30_INTEGRATION.sap_faglflext`. Los snapshots
+`D10_POSTPROCESSING.sap_faglflext2_YYYYMMDD` **no aportan ninguna cifra al reporte**: se leen
+solo como referencia histórica para el chequeo de estabilidad, porque `sap_faglflext` es una
+tabla viva sin histórico y sin una foto anterior no hay forma de saber si un mes cerrado
+sigue moviéndose. Decisión del usuario (2026-08-17): mantener el snapshot con ese único uso en
+lugar de perder el chequeo. Si algún día se quita, el reporte lee solo `sap_faglflext` pero
+desaparece la columna de estatus.
+
 **Hueco de cobertura conocido:** la query no captura Ingresos/Egresos de SCO1 (plan de
 cuentas PCSD, posición de dígito distinta a la del resto) -- ver memoria del proyecto
 (`resultado-financiero-mensual-proyecto`) para el detalle, pendiente de decisión.

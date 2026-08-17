@@ -55,14 +55,57 @@ CUENTAS = {
 
 # Solo se generan las cuentas listadas aquí; las demás se activan a medida que se validen
 # sus queries. Mermas (0005010628) se activó como "Plantilla A" (cuenta única, igual
-# formato que Gastos no Deducibles) -- se abandonó el reporte de razón Mermas/Costo Total
-# porque nunca se logró confirmar con certeza qué cuentas conforman "Costo Total" (varias
-# hipótesis probadas, ninguna validada). Mejor un dato de Mermas solo, correcto y
-# validable, que un % apoyado en un denominador no confirmado. Si en el futuro se
-# confirma el denominador, se puede agregar esa razón como reporte aparte -- no reemplaza
-# a este. Igual que Gastos no Deducibles: dígito 5 (egresos), sin ABS(), tabla viva (mismo
-# criterio que el resto -- ver nota de snapshot pendiente más abajo).
+# formato que Gastos no Deducibles). Igual que Gastos no Deducibles: dígito 5 (egresos),
+# sin ABS(), tabla viva (mismo criterio que el resto -- ver nota de snapshot pendiente
+# más abajo).
 CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Mermas"]
+
+# --- Dos formas de reportar la misma cuenta: importe vs. razón ----------------------
+# Mermas y Descuentos/Bonificaciones se emiten AMBAS en las dos formas, en secciones
+# contiguas del mismo PDF, porque no está decidido cuál es la correcta y finanzas tiene que
+# elegir viéndolas lado a lado (instrucción explícita del usuario, 2026-08-17):
+#
+#   Importe -- solo la cantidad económica de la cuenta en cada sociedad (Plantilla A:
+#     actual vs. anterior, diferencia, % variación entre periodos). Es lo que ya hacía
+#     Mermas.
+#   Razón   -- la cuenta comparada contra su base (Plantilla B: base, cuenta, % sobre la
+#     base, en los dos periodos). Es lo que ya hacía Descuentos (descuentos/ingresos).
+#     Para Mermas la base es el Costo Total (ver RACCT_PREFIX_COSTOS).
+#
+# Las dos variantes de una cuenta salen de la MISMA query -- no se consulta BigQuery dos
+# veces por cuenta.
+TITULOS_SECCION = {
+    "Mermas": "Mermas — Importe",
+    "Mermas ratio": "Mermas — % sobre Costo Total",
+    "Descuentos importe": "Descuentos y Bonificaciones — Importe",
+    "Descuentos ratio": "Descuentos y Bonificaciones — % sobre Ingresos",
+}
+
+# Denominador de la razón de Mermas ("Costo Total" en el Excel de finanzas y nodo "Costos"
+# del árbol de ZF01). CONFIRMADO 2026-08-17, después de haber quedado sin resolver antes:
+#
+# 1. El grupo de cuentas de SAP (KTOKS en el catálogo SKA1, plan PROA) parte los egresos en
+#    exactamente dos: CTOS = "Costos", cuentas 0005040100-0005041999 (77 cuentas, todas con
+#    prefijo 000504), y GAGE = "Gastos generales", que es todo el resto (000501/000502/
+#    000503). Eso corresponde 1:1 con los dos únicos hijos de EGRESOS en el árbol de ZF01
+#    ("Costos" y "Gastos generales"). El catálogo se usó SOLO para obtener la lista de
+#    cuentas; todos los importes de este reporte salen de sap_faglflext y nada más.
+# 2. Validado contra el Excel de finanzas "Mermas" (FY2024, con corte en el periodo 7):
+#    la suma de 000504% cuadra AL PESO en 9 sociedades -- CCP 657,173,985 · GSI
+#    6,252,798,495 · AME 610,530,076 · PAL 585,236,860 · MPE 284,112,661 · HEGP 232,217,290
+#    · PAT 196,556,110 · PFO 99,475,133 · ABP 53,486,260. Solo PAN, PRA y ROMM difieren
+#    (0.7%-13%), consistente con reclasificación posterior a la fecha del Excel (la propia
+#    cuenta de Mermas de PAN también se movió: la captura de FS10N del PDF dice
+#    $290,209,977 de Debe en 2024 y hoy la tabla viva dice $307,008,768).
+#
+# Ojo al usar ese Excel como referencia otra vez: sus columnas históricas están CORRIDAS UN
+# AÑO (la rotulada "2023" contiene FY2022, "2022" contiene FY2021, "2021" contiene FY2020),
+# mientras la rotulada "2024" sí es FY2024 pero parcial -- Mermas cortada en el periodo 6 y
+# Costo Total en el 7, porque salen de dos transacciones distintas (FS10N y ZF01) capturadas
+# en fechas distintas. Se comprobó al céntimo: Mermas de PAN en el Excel es 214,333,515.82
+# (FY2020), 259,314,242.10 (FY2021), 447,023,995.65 (FY2022) y 157,427,250.71 (FY2024 p1-6).
+# Comparar contra la columna que le toca por AÑO FISCAL, no por su rótulo.
+RACCT_PREFIX_COSTOS = "000504"
 
 # Cuentas que deben sumarse SOLO Debe (DRCRK='S'), no neto Debe-Haber (ver datos.build_query).
 # Confirmado con datos reales (2026-08) para Mermas (0005010628): esta cuenta recibe
@@ -104,11 +147,45 @@ CUENTAS_SOLO_DEBE = {"Mermas"}
 # el año cerrado 2023. Si hace falta re-validar esta cuenta, comparar contra ese árbol de
 # SAP, no contra el Excel de finanzas.
 #
-# Limitación conocida (sin confirmar del todo): hay indicios de que esta cuenta podría
-# reclasificarse/sanearse en el cierre anual, lo que podría hacer que el saldo del año en
-# curso baje o llegue a cero después del cierre. No afecta al reporte diario en producción
-# (que siempre mira el año aún no cerrado), pero si se detectan saltos raros en la columna
-# "año actual" al pasar de un año a otro, revisar este comportamiento antes de asumir un bug.
+# CONFIRMADO 2026-08-17 (antes estaba anotado aquí como sospecha "sin confirmar del todo"):
+# el cierre anual SÍ reclasifica esta cuenta. Se avisó al usuario y su decisión (2026-08-17,
+# reafirmada) es mantener de todos modos el MISMO formato que el resto de cuentas: año en curso
+# vs. año anterior (Plantilla A), para que las cuatro cuentas tengan las mismas columnas. La
+# sección lleva NOTA_PRECIOS al pie para que quien lea el PDF sepa interpretar los ±100%.
+# La evidencia es el árbol de ZF01 del PDF "Variación de precios.pdf" (carpeta Reportes
+# documentos), corrido el 13/12/2024 sobre el ejercicio 2024:
+#
+#   sociedad        árbol ZF01 al 13/12/2024      faglflext hoy (mismo FY2024)
+#   GSI                     2,726,129.94                          0.00
+#   PAL                    12,289,508.60                          0.00
+#   PRA                    13,341,938.14                          0.00
+#   AME                      -235,827.68                          0.00
+#   PAN                   322,035,076.78                243,288,299.77
+#
+# O sea: el dato de un ejercicio ya cerrado cambia después de cerrado, y en la mayoría de
+# sociedades se barre a 0.00 exacto. Comparar el año en curso contra ese residuo medía el
+# cierre, no la variación de precios: producía ±100% en 9 de 12 filas y cosas como -236%.
+#
+# Lo que sí quedó validado de esta cuenta (no tocar sin repetir la comprobación): el neto de
+# HSL01..16 reproduce el árbol de ZF01 AL CENTAVO en las 16 sociedades del ejercicio 2023
+# (AME 253,501,755.08 · PAN 413,316,906.54 · PAL -1,616,613.12 · PAT 54,937.56 · CCP 1,403.32
+# · ISE -53.73 · MPE -401.01 · ROMM -23,159.65 · SAP 2,813.78 · BAG 0.01, y las seis que el
+# árbol pone en 0.00 salen 0.00). Además HSLVT (arrastre) es 0 en todas las filas de esta
+# cuenta, y el criterio correcto es el NETO, no "solo Debe" como en Mermas: el Debe de esta
+# cuenta es absurdo (PFO en 2023: $190,420,303,924 de Debe con neto 0).
+#
+# Nota al pie de la sección (pdf.build_section acepta `nota`). Explica los ±100% sin cambiar el
+# formato: con datos de 2026, solo 3 de las 12 sociedades con movimiento tienen base material en
+# 2025 (PAN $190.6M, ROMM -$3.0M, MPE $54.7k en Ene-Ago; el resto exactamente 0.00), así que la
+# mayoría de filas cae en la convención +100%/-100% de _pct_o_100. No es un error de cálculo.
+NOTA_PRECIOS = (
+    "Muchas sociedades muestran ±100.0% porque su saldo de {prior_year} es cero: el cierre "
+    "anual reclasifica esta cuenta y borra del ejercicio ya cerrado movimientos que sí existían "
+    "cuando el año estaba abierto (comprobado contra el árbol de SAP: sociedades con saldo a "
+    "diciembre aparecen hoy en 0.00 para ese mismo ejercicio). En esas filas el % indica "
+    "\"no había base el año anterior\", no una variación real de precios; la cifra fiable es la "
+    "columna del año en curso."
+)
 
 # --- Descuentos y Bonificaciones -------------------------------------------------
 # No usa CUENTAS/CUENTAS_ACTIVAS: en vez de una lista fija de RACCT, cubre un RANGO
@@ -224,8 +301,13 @@ EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
 EMAIL_CUERPO_TEMPLATE = (
     "Hola Luis Enrique,\n\n"
     "Adjunto el reporte diario de cuentas contables PROAN correspondiente al {fecha}, "
-    "con las secciones de Gastos no Deducibles, Descuentos y Bonificaciones y Variación "
-    "de Precios.\n\n"
+    "con las secciones de Gastos no Deducibles, Mermas, Descuentos y Bonificaciones y "
+    "Variación de Precios.\n\n"
+    "Mermas y Descuentos van cada una en DOS formas, en secciones seguidas: el importe de "
+    "la cuenta por sociedad, y la misma cuenta como porcentaje sobre su base (Mermas sobre "
+    "el Costo Total, Descuentos sobre los Ingresos). Están las dos porque no está definido "
+    "cuál de los dos criterios es el correcto — agradecemos que nos indiquen cuál usar para "
+    "dejar solo ese.\n\n"
     "Saludos."
 )
 
