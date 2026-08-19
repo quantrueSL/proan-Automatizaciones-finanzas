@@ -8,9 +8,9 @@ JOB_NAME="anticipos-diario"
 SCHEDULER_JOB_NAME="anticipos-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Lunes a sabado a las 10:00 de Mexico. El espejo de BSIK se recarga cada dos horas,
+# Lunes a sabado a las 9:30 de Mexico. El espejo de BSIK se recarga cada dos horas,
 # asi que a esa hora el dato es del mismo dia.
-SCHEDULER_CRON="0 10 * * 1-6"
+SCHEDULER_CRON="30 9 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'

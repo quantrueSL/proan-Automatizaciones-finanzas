@@ -15,7 +15,9 @@ Dos cosas distintas, y el reporte incluye las dos en secciones separadas:
 
 En los dos casos el calculo es el mismo: saldo neto de las partidas abiertas agrupadas
 por sociedad + indicador + cuenta + proveedor, con el signo que marca SHKZG ('S' debe
-suma, 'H' haber resta), quedandose con los positivos.
+suma, 'H' haber resta), quedandose con los positivos. Excepcion: en los anticipos
+formales (UMSKZ = 'A') tambien se incluyen los que salen en negativo, porque el cliente
+los quiere ver igual; antes se descartaban junto con el resto de negativos.
 
 Decisiones tomadas, con su motivo
 ---------------------------------
@@ -272,6 +274,9 @@ def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, A
           s.saldo_neto
         FROM saldos s
         LEFT JOIN proveedores p USING (proveedor)
+        -- El negativo solo entra para los anticipos formales (umskz='A'): el cliente
+        -- los quiere ver igual. Para el resto, negativo es una factura pendiente de
+        -- pago, no un anticipo, y se descarta.
         WHERE s.saldo_neto > 0 or (s.umskz = 'A' AND s.saldo_neto < 0)
         ORDER BY s.sociedad, tipo, s.saldo_neto DESC
     """

@@ -1,6 +1,6 @@
 # Reporte diario de anticipos
 
-Cada dia, de lunes a sabado a las 10:00 de Mexico, calcula los anticipos a proveedores de
+Cada dia, de lunes a sabado a las 9:30 de Mexico, calcula los anticipos a proveedores de
 16 sociedades, guarda una foto en BigQuery y envia un correo por sociedad mas uno
 consolidado. Sustituye el reporte que se sacaba a mano de SAP (`reportesEspeciales >
 reportePartidasPendientes > Reporte anticipos`).
@@ -20,7 +20,9 @@ saldo = SUMA( +DMBTR si SHKZG='S' (debe) ,  -DMBTR si SHKZG='H' (haber) )
 
 `DMBTR` va siempre en **moneda local**, pesos mexicanos, aunque el documento original
 estuviera en dolares o euros. Por eso se pueden sumar apuntes de distintas divisas sin
-convertir nada. **Si el saldo sale positivo, hay anticipo.**
+convertir nada. **Si el saldo sale positivo, hay anticipo.** Para los anticipos formales
+(`UMSKZ = 'A'`) tambien se incluyen los que salen con saldo negativo: el cliente quiere
+verlos igual, aunque no representen dinero pendiente de aplicar.
 
 ## Los cuatro valores de `UMSKZ`
 
@@ -30,7 +32,7 @@ se pueden mezclar:
 | `UMSKZ` | Que es | Cuentas | En el reporte |
 |---|---|---|---|
 | *(vacio)* | **Partida normal de proveedor.** Facturas y pagos corrientes. Su saldo neto es deudor solo si se ha pagado de mas | **Pasivo**: `20101xx`, `2020xxx`, `2111xx` | **Si**, como «Saldos deudores en cuentas de proveedor» |
-| `A` | **Anticipo formal.** Registrado en SAP declarandolo como anticipo | **Activo**: `10801xx`, `0000140110` | **Si**, como «Anticipos a proveedores» |
+| `A` | **Anticipo formal.** Registrado en SAP declarandolo como anticipo | **Activo**: `10801xx`, `0000140110` | **Si**, como «Anticipos a proveedores», incluidos los que salen con saldo negativo |
 | `F` | **Solicitud de anticipo.** Apunte estadistico para planificar pagos. No representa dinero movido | Las mismas que `A` | **No** |
 | `H` | Otros indicadores especiales | `0000140810` | **No** |
 
@@ -103,11 +105,15 @@ SELECT s.sociedad,
        s.saldo_neto
 FROM saldos s
 LEFT JOIN proveedores p USING (proveedor)
-WHERE s.saldo_neto > 0
+WHERE s.saldo_neto > 0 OR (s.umskz = 'A' AND s.saldo_neto < 0)
 ORDER BY s.sociedad, tipo, s.saldo_neto DESC
 ```
 
-Cuatro detalles que no son opcionales:
+Cinco detalles que no son opcionales:
+
+- **Los anticipos formales (`UMSKZ = 'A'`) entran tambien en negativo.** Para el resto
+  (`UMSKZ` vacio) solo cuenta el saldo positivo, que es lo que los hace un anticipo de
+  hecho. El cliente pidio ver tambien los `'A'` en negativo, que antes se descartaban.
 
 - **`UMSKZ` va en el `GROUP BY`, no solo en el `WHERE`.** `'A'` y `'F'` comparten cuenta de
   mayor, asi que agrupar solo por cuenta mezclaria un anticipo con su propia solicitud.
@@ -143,12 +149,15 @@ En `bsik_real_time` hay 23; quedan fuera a proposito `ADE`, `FAG`, `FEF`, `GSI`,
 Una sociedad sin anticipos de ninguno de los dos tipos **recibe su correo igualmente**, con
 un «Sin anticipos pendientes»: el silencio no se distingue de un proceso roto.
 
-## Los saldos negativos no son de este reporte
+## Los saldos negativos casi nunca son de este reporte
 
 Al separar por signo, el lado negativo resulta ser dos o tres ordenes de magnitud mayor y
 con muchas mas filas: son las **facturas pendientes de pago**. Corresponden a la
 automatizacion `Partidas abiertas por compensar`, que va por otro camino
 (`bsis_real_time`, clase `ZR`, cuentas terminadas en `I`).
+
+La unica excepcion es `UMSKZ = 'A'`: ahi el negativo si entra, porque el cliente quiere
+verlo junto con el resto de anticipos formales.
 
 ## Tabla de salida
 
@@ -163,7 +172,7 @@ automatizacion `Partidas abiertas por compensar`, que va por otro camino
 | `cuenta` | STRING | `HKONT`. Cadena vacia si el apunte no la trae |
 | `proveedor` | STRING | `LIFNR` sin ceros de relleno |
 | `nombre_proveedor` | STRING | `razon_social` de `dm_vendors` |
-| `saldo_neto` | NUMERIC | Siempre positivo |
+| `saldo_neto` | NUMERIC | Positivo salvo en anticipos formales (`tipo = 'anticipo'`), que tambien pueden salir negativos |
 | `actualizado_en` | DATETIME | Hora de Mexico de la ejecucion |
 
 **Es la unica historia que existe.** BSIK solo tiene partidas abiertas, el espejo se
@@ -261,8 +270,8 @@ igual que en `Cambio divisa`.
 
 ### Horario
 
-`0 10 * * 1-6` en `America/Mexico_City`. Mexico va a **UTC−6 todo el ano** desde 2022, asi
-que las 10:00 de Mexico son las **16:00 UTC** y las **18:00 en Espana** en verano. El
+`30 9 * * 1-6` en `America/Mexico_City`. Mexico va a **UTC−6 todo el ano** desde 2022, asi
+que las 9:30 de Mexico son las **15:30 UTC** y las **17:30 en Espana** en verano. El
 espejo se recarga cada dos horas, asi que a esa hora el dato es del mismo dia.
 
 ## Operacion
