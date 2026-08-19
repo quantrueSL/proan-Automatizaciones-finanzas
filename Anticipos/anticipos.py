@@ -272,7 +272,7 @@ def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, A
           s.saldo_neto
         FROM saldos s
         LEFT JOIN proveedores p USING (proveedor)
-        WHERE s.saldo_neto > 0
+        WHERE s.saldo_neto > 0 or (s.umskz = 'A' AND s.saldo_neto < 0)
         ORDER BY s.sociedad, tipo, s.saldo_neto DESC
     """
     configuracion = bigquery.QueryJobConfig(
