@@ -125,6 +125,40 @@ def get_mailing_list(list_id):
     return recipients
 
 
+CHART_CID = "grafico_top5_resultado_financiero"
+
+
+LOGO_CID = "logo_proan"
+
+
+CUERPO_TEXTO_PLANO = (
+    "Hola Luis Enrique,\n\n"
+    "Adjunto el Resultado Financiero Diario PROAN correspondiente al {fecha}: cuadre por "
+    "sociedad (Balance vs. Estado de Resultados). El mismo detalle está también en el cuerpo "
+    "de este correo, no hace falta abrir el adjunto para verlo.\n\n"
+    "Nota: este envío es una vista previa manual para revisar formato -- el cálculo todavía "
+    "NO está validado contra SAP ZF01 en vivo (pendiente).\n\n"
+    "Saludos."
+)
+
+
+def _badge_html(ok, size=16):
+    """Círculo de color + carácter de texto (✓ / !) -- NO usa imágenes SVG en data: URI.
+    El soporte de SVG y de data: URIs en clientes de correo es muy inconsistente (Outlook de
+    escritorio en particular no renderiza casi ninguno de los dos, y se vería como un ícono
+    roto); un carácter Unicode es solo texto, lo renderiza el tipo de letra del sistema del
+    lector, funciona en cualquier cliente. border-radius:50% no lo respeta Outlook clásico
+    (se ve como un cuadrado de color en vez de círculo) pero el color y el símbolo sí llegan
+    -- degradación aceptable, nunca un ícono ausente."""
+    color = COLORS["good"] if ok else COLORS["critical"]
+    caracter = "&#10003;" if ok else "!"
+    return (
+        f'<span style="display:inline-block;width:{size}px;height:{size}px;line-height:{size}px;'
+        f'border-radius:50%;background:{color};color:#ffffff;font-family:Arial,sans-serif;'
+        f'font-weight:800;font-size:{int(size * 0.62)}px;text-align:center;">{caracter}</span>'
+    )
+
+
 def resolve_email_recipients():
     """Destinatarios del reporte. La lista de Firestore es la UNICA fuente.
 

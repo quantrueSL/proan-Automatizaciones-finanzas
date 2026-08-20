@@ -124,6 +124,10 @@ def get_mailing_list(list_id):
     return recipients
 
 
+_MESES_ES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
 def resolve_email_recipients():
     """Destinatarios del reporte. La lista de Firestore es la UNICA fuente.
 
