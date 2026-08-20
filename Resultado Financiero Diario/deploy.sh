@@ -93,9 +93,12 @@ gcloud run jobs deploy "${JOB_NAME}" \
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
+# RESULTADO_DIARIO_EMAIL_TO ya no la lee el codigo (la lista vive en Firestore,
+# documento lists/reportes-financieros). Se sigue inyectando por si hace falta volver
+# atras rapido; puede retirarse cuando el cambio lleve tiempo estable.
 RESULTADO_DIARIO_EMAIL_TO: ${RESULTADO_DIARIO_EMAIL_TO_VALUE}
 RESULTADO_DIARIO_EMAIL_DRY_RUN: "${RESULTADO_DIARIO_EMAIL_DRY_RUN:-false}"
-RESULTADO_DIARIO_LIST_ID: ${RESULTADO_DIARIO_LIST_ID:-resultado_financiero_diario}
+RESULTADO_DIARIO_LIST_ID: ${RESULTADO_DIARIO_LIST_ID:-reportes-financieros}
 FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
 FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}

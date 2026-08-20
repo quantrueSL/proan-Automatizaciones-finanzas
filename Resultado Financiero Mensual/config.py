@@ -104,12 +104,16 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
 
-# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------------
-# Mismo patrón que "Cambio divisa/divisa.py" -- Firestore -> variable de entorno -> tupla
-# hardcodeada. Horario de Cloud Scheduler: 08:00 America/Mexico_City, día 1 de cada mes.
+# --- Destinatarios: lista administrada en Firestore ---------------------------------------
+# Fuente unica: el documento lists/reportes-financieros de la base proan-lista-mails
+# (compartido por los tres reportes financieros). Se lee con get_mailing_list() en
+# enviar_reporte.py. Ya no hay cascada a variable de entorno ni tupla hardcodeada.
 FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
 FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
-RESULTADO_MENSUAL_LIST_ID = os.environ.get("RESULTADO_MENSUAL_LIST_ID", "resultado_financiero_mensual").strip()
+RESULTADO_MENSUAL_LIST_ID = os.environ.get("RESULTADO_MENSUAL_LIST_ID", "reportes-financieros").strip()
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Mensual PROAN - {mes1_str} y {mes2_str}"
-EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"
-DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)
+# Los destinatarios ya NO viven en el codigo: se administran en el documento de
+# Firestore lists/reportes-financieros (base proan-lista-mails). Ver get_mailing_list()
+# en enviar_reporte.py. Se retiraron EMAIL_DESTINATARIO_DEFAULT y
+# DEFAULT_EMAIL_RECIPIENTS el 2026-08-20 para que no quede una copia de los correos
+# aqui que pueda desincronizarse de la lista real.

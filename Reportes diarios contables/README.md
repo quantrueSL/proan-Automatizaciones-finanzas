@@ -46,19 +46,27 @@ El mismo Cloud Run Job envía el correo automáticamente al terminar de generar 
 El destinatario principal es el remitente genérico configurado en `SENDGRID_FROM_EMAIL`; los
 destinatarios reales van en copia (`Cc`).
 
-Origen de destinatarios (cascada, ver `enviar_reporte.py`):
+Origen de destinatarios (`get_mailing_list()` en `enviar_reporte.py`):
 
-1. Firestore, base `proan-lista-mails`, colección `lists`, documento `reporte_cuentas_diario`.
-2. Si Firestore no existe, está deshabilitado o no tiene emails válidos: `REPORTE_CUENTAS_EMAIL_TO`.
-3. Si tampoco hay valor en entorno: destinatario por defecto hardcodeado en `config.py`
-   (`EMAIL_DESTINATARIO_DEFAULT`).
+La lista vive **solo** en Firestore: base `proan-lista-mails`, colección `lists`, documento
+`reportes-financieros` (campos `emails` como array de strings y `enabled` como booleano). Es el
+mismo documento para los tres reportes financieros, así que un cambio ahí los afecta a los tres.
+
+Para cambiar quién recibe el reporte se edita ese documento y **no hace falta redesplegar**.
+
+Si el documento no existe, tiene `enabled: false`, trae `emails` mal formado o Firestore no
+responde, `get_mailing_list()` devuelve una lista vacía, deja una advertencia en el log y el Job
+termina sin enviar y **sin fallar**. Ya no hay fallback a variable de entorno ni a correos
+hardcodeados: si la lista se apaga, no sale correo — que es justo lo que se busca al apagarla,
+pero conviene saberlo.
 
 ## Configuración (`.env`, ver `.env.example`)
 
 - `SENDGRID_API_KEY`: API key de SendGrid.
 - `SENDGRID_FROM_EMAIL`: remitente verificado. Por defecto `noreply@proan.com`.
-- `REPORTE_CUENTAS_EMAIL_TO`: fallback de destinatarios separados por coma (nivel 2 de la
-  cascada).
+- `REPORTE_CUENTAS_EMAIL_TO`: **ya no se usa** (se retiró el 2026-08-20 al pasar la lista a
+  Firestore). El `deploy.sh` todavía la inyecta; es inofensiva, pero puede
+  borrarse en el próximo cambio del script.
 - `REPORTE_CUENTAS_EMAIL_DRY_RUN`: si vale `true`, el Job no envía correo real (para probar
   en producción sin gastar un envío -- el flag `--dry-run` no se puede pasar a un Cloud Run Job).
 - `FIRESTORE_DATABASE_ID` / `FIRESTORE_LISTS_COLLECTION` / `REPORTE_CUENTAS_LIST_ID`: normalmente
@@ -69,8 +77,8 @@ Origen de destinatarios (cascada, ver `enviar_reporte.py`):
 
 ```bash
 python generar_reporte.py                 # genera el PDF de hoy
-python enviar_reporte.py --dry-run         # cascada de destinatarios, no envía nada real
-python enviar_reporte.py --to a@b.com      # override explícito, salta la cascada
+python enviar_reporte.py --dry-run         # lee la lista de Firestore, no envía nada real
+python enviar_reporte.py --to a@b.com      # override explícito, salta la lista de Firestore
 ```
 
 ## Despliegue

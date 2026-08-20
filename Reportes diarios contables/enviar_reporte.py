@@ -16,16 +16,17 @@ formas (importe y razón) de Mermas y de Descuentos — si se agrega o quita una
 generar_reporte.py hay que reflejarlo en _preparar_resumenes() o el correo queda desalineado
 con su adjunto.
 
-Destinatarios: cascada Firestore -> REPORTE_CUENTAS_EMAIL_TO -> default hardcodeado (ver
-resolve_email_recipients() y config.DEFAULT_EMAIL_RECIPIENTS) -- mismo patrón que
-"Cambio divisa/divisa.py". El correo se manda To: SENDGRID_FROM_EMAIL, Cc: cada destinatario
+Destinatarios: se leen de la lista de Firestore lists/reportes-financieros
+(base proan-lista-mails) via get_mailing_list() -- fuente unica, sin cascada ni
+correos hardcodeados. Cambiar quien recibe el reporte es editar ese documento,
+no hace falta redesplegar. El correo se manda To: SENDGRID_FROM_EMAIL, Cc: cada destinatario
 resuelto (igual que divisa.py), no To: destinatario como antes.
 
 Uso:
-    python enviar_reporte.py                          # envía el reporte de hoy (cascada)
+    python enviar_reporte.py                          # envía el reporte de hoy (lista de Firestore)
     python enviar_reporte.py --pdf ruta\al\reporte.pdf # envía un PDF específico
     python enviar_reporte.py --to otro@correo.com      # OVERRIDE explícito para pruebas
-                                                        # locales -- salta la cascada entera
+                                                        # locales -- salta la lista de Firestore
     python enviar_reporte.py --dry-run                 # no envía nada; guarda una
                                                         # vista previa del HTML en OUTPUT_DIR
 
@@ -48,7 +49,7 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 
 from config import (
-    COLORS, CUENTAS, CUENTAS_ACTIVAS, CUENTAS_SOLO_DEBE, DEFAULT_EMAIL_RECIPIENTS,
+    COLORS, CUENTAS, CUENTAS_ACTIVAS, CUENTAS_SOLO_DEBE,
     EMAIL_ASUNTO_TEMPLATE, EMAIL_CUERPO_TEMPLATE, FIRESTORE_DATABASE_ID,
     FIRESTORE_LISTS_COLLECTION, OUTPUT_DIR, PROJECT_ID, REPORTE_CUENTAS_LIST_ID, SOCIEDADES,
     TITULOS_SECCION,
@@ -77,17 +78,12 @@ def _color_por_signo(v):
     return COLORS["good"] if v >= 0 else COLORS["critical"]
 
 
-# --- Resolución de destinatarios: Firestore -> env var -> default -------------------------
-# Copiado de "Cambio divisa/divisa.py" (mismo patrón que Anticipos y Partidas), cambiando
-# solo el nombre de la variable de entorno y el list_id -- decisión explícita del usuario de
-# copiar en vez de extraer un módulo compartido (cada carpeta es autónoma para su propio
-# build, ver README del repo). print() en vez de logging: este archivo nunca usó el módulo
-# logging, se mantiene su convención existente en vez de mezclar dos estilos.
-
-def _email_recipients_env():
-    raw = os.environ.get("REPORTE_CUENTAS_EMAIL_TO", "").strip()
-    return [email.strip() for email in raw.split(",") if email.strip()]
-
+# --- Destinatarios: lista administrada en Firestore ---------------------------------------
+# La lista vive en lists/reportes-financieros (base proan-lista-mails) y la comparten los
+# tres reportes financieros. get_mailing_list() esta duplicada en cada carpeta a proposito:
+# cada automatizacion es autonoma para su propio build de Docker (ver README del repo), el
+# contexto de 'gcloud builds submit .' es solo esta carpeta y un modulo compartido fuera de
+# ella no viajaria en la imagen.
 
 def _normalize_recipients(raw_recipients):
     recipients = []
@@ -104,44 +100,66 @@ def _normalize_recipients(raw_recipients):
     return recipients
 
 
-def _firestore_recipients():
-    from google.cloud import firestore
+def get_mailing_list(list_id):
+    """Destinatarios de una lista de correo administrada en Firestore.
 
-    client = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DATABASE_ID)
-    snapshot = client.collection(FIRESTORE_LISTS_COLLECTION).document(REPORTE_CUENTAS_LIST_ID).get()
+    Lee el documento `lists/{list_id}` de la base FIRESTORE_DATABASE_ID
+    ("proan-lista-mails"), que NO es la base default del proyecto: hay que pasar
+    `database=` explicitamente o el cliente apuntaria a "(default)" y no encontraria nada.
+
+    Devuelve el array `emails` si el documento existe y tiene `enabled` en true. En
+    cualquier otro caso -- documento inexistente, lista deshabilitada, `emails` mal formado
+    o Firestore inaccesible -- devuelve [] y deja una advertencia clara en el log, SIN
+    lanzar excepcion: quedarse sin destinatarios no debe tumbar el Job.
+
+    Usa print() y no logging por la convencion de este archivo (ver cabecera); en Cloud Run
+    stdout va igualmente a Cloud Logging, asi que la advertencia queda registrada.
+    """
+    try:
+        from google.cloud import firestore
+
+        client = firestore.Client(project=PROJECT_ID, database=FIRESTORE_DATABASE_ID)
+        snapshot = client.collection(FIRESTORE_LISTS_COLLECTION).document(list_id).get()
+    except Exception as exc:
+        print(f"[recipients] ADVERTENCIA: no se pudo leer Firestore "
+              f"({FIRESTORE_DATABASE_ID}/{FIRESTORE_LISTS_COLLECTION}/{list_id}): {exc}")
+        return []
+
     if not snapshot.exists:
-        print(f"[recipients] No existe documento Firestore {FIRESTORE_LISTS_COLLECTION}/"
-              f"{REPORTE_CUENTAS_LIST_ID} en base {FIRESTORE_DATABASE_ID}")
+        print(f"[recipients] ADVERTENCIA: no existe el documento "
+              f"{FIRESTORE_LISTS_COLLECTION}/{list_id} en la base {FIRESTORE_DATABASE_ID}")
         return []
 
     data = snapshot.to_dict() or {}
     if not data.get("enabled", True):
-        print(f"[recipients] La lista Firestore {REPORTE_CUENTAS_LIST_ID} está deshabilitada")
+        print(f"[recipients] ADVERTENCIA: la lista {list_id} esta deshabilitada "
+              f"(enabled=false); no se enviara el reporte a nadie")
         return []
 
     emails = data.get("emails")
     if not isinstance(emails, list):
-        print(f"[recipients] El campo emails de {REPORTE_CUENTAS_LIST_ID} no es una lista")
+        print(f"[recipients] ADVERTENCIA: el campo emails de {list_id} no es un array")
         return []
 
-    return _normalize_recipients([str(email) for email in emails])
+    recipients = _normalize_recipients([str(email) for email in emails])
+    if not recipients:
+        print(f"[recipients] ADVERTENCIA: la lista {list_id} no tiene ningun correo valido")
+    return recipients
 
 
 def resolve_email_recipients():
-    try:
-        firestore_recipients = _firestore_recipients()
-    except Exception as exc:
-        print(f"[recipients] No se pudieron leer destinatarios desde Firestore: {exc}")
-        firestore_recipients = []
+    """Destinatarios del reporte. La lista de Firestore es la UNICA fuente.
 
-    if firestore_recipients:
-        return firestore_recipients, "firestore"
+    Hasta el 2026-08-20 habia una cascada Firestore -> variable de entorno -> tupla
+    hardcodeada en config.py. Se retiro a peticion del usuario para que la lista se
+    administre en un solo sitio: cambiar quien recibe el reporte es editar el documento de
+    Firestore, sin redesplegar nada.
 
-    env_recipients = _normalize_recipients(_email_recipients_env())
-    if env_recipients:
-        return env_recipients, "env"
-
-    return list(DEFAULT_EMAIL_RECIPIENTS), "default"
+    Contrapartida a tener presente: si la lista se deshabilita o Firestore no responde, no
+    sale correo. get_mailing_list() lo avisa en el log y enviar_reporte() corta ahi mismo,
+    en vez de fallar con una excepcion.
+    """
+    return get_mailing_list(REPORTE_CUENTAS_LIST_ID), "firestore"
 
 
 def _preparar_resumenes(client, hoy):
@@ -330,6 +348,14 @@ def enviar_reporte(pdf_path, destinatario_override=None, dry_run_override=False)
         recipients, recipients_source = resolve_email_recipients()
     print(f"Destinatarios resueltos desde {recipients_source}: {recipients}")
 
+    # Sin destinatarios no se envia nada, pero tampoco se falla: la lista de Firestore es la
+    # unica fuente, y si esta deshabilitada o vacia lo correcto es terminar limpio dejando el
+    # motivo en el log (get_mailing_list ya imprimio la advertencia concreta).
+    if not recipients:
+        print("[recipients] Sin destinatarios: no se envia el correo. Revisa el documento "
+              f"Firestore lists/{REPORTE_CUENTAS_LIST_ID} (campos enabled / emails).")
+        return
+
     dry_run_env = os.environ.get("REPORTE_CUENTAS_EMAIL_DRY_RUN", "false").strip().lower() in {
         "1", "true", "yes",
     }
@@ -398,7 +424,7 @@ def main():
     parser.add_argument("--pdf", default=None, help="Ruta al PDF a enviar")
     parser.add_argument("--to", default=None,
                          help="Override de destinatario para pruebas locales -- salta la "
-                              "cascada Firestore/REPORTE_CUENTAS_EMAIL_TO/default")
+                              "lista de Firestore")
     parser.add_argument("--dry-run", action="store_true",
                          help="No envía el correo; guarda una vista previa del HTML")
     args = parser.parse_args()
