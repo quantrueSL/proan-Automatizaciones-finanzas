@@ -21,13 +21,12 @@ D00_SANDBOX.bsis_real_time, espejo de BSIS: el indice de partidas ABIERTAS de cu
 de mayor. Es el hermano de BSIK, que indexa por proveedor; este indexa por cuenta
 contable.
 
-Se filtra BLART = 'ZR', la clase de documento de los traspasos y movimientos de banco.
-Son unas 264 filas de las 1.487 de la tabla; el resto son otras clases (KZ, DZ, DP...)
-que quedan fuera del alcance de este reporte.
+Entran todas las clases de documento (BLART): antes solo se mostraba 'ZR' (traspasos y
+movimientos de banco), pero el cliente quiere ver el resto tambien. BLART se muestra en
+el reporte como columna Clase, para poder distinguirlas.
 
 No hace falta filtrar por AUGBL: se comprobo que de las 1.487 filas de la tabla solo
-una tiene documento de compensacion, y no es de clase ZR. El espejo no arrastra
-partidas ya compensadas.
+una tiene documento de compensacion. El espejo no arrastra partidas ya compensadas.
 
 El nombre de cada sociedad sale de D20_DIMENSION.dm_company (company_code ->
 company_name), para que el correo diga "Sociedad PAN - Proteina Animal SA de CV" y no
@@ -41,7 +40,9 @@ Decisiones tomadas, con su motivo
    Las cuentas terminadas en 'E' son egresos y las terminadas en 'I' son ingresos.
    Entran las dos, y en las ZR no hay ninguna cuenta con otro sufijo, asi que filtrar
    no descartaria ruido: solo quitaria la mitad del reporte. El sufijo se usa para
-   derivar la columna Tipo.
+   derivar la columna Tipo. Esta convencion solo se verifico para ZR: al entrar el
+   resto de clases de documento, puede haber cuentas que no sigan el patron E/I y aun
+   asi se clasifiquen como Egreso por defecto. Se deja asi a proposito.
 
 2. Es un listado, no un motor de conciliacion.
 
@@ -49,7 +50,8 @@ Decisiones tomadas, con su motivo
    dos patas de cada operacion. No: de 182 asignaciones, NINGUNA tiene pata 'E' e 'I' a
    la vez dentro de la misma sociedad. Ignorando la sociedad aparecen dos, y son
    traspasos entre empresas del grupo. ZUONR es un campo libre: unas veces es una
-   fecha, otras una referencia bancaria.
+   fecha, otras una referencia bancaria. Este analisis es de cuando el reporte solo
+   cubria ZR; no se ha repetido tras ampliar a todas las clases de documento.
 
    Asi que se agrupa por cuenta y se listan las partidas, como el reporte manual.
    Emparejarlas es trabajo de la persona. Se ordena dentro de cada cuenta por
@@ -61,11 +63,12 @@ Decisiones tomadas, con su motivo
    distintos. Sin GJAHR, un SELECT DISTINCT las colapsaria y una desapareceria en
    silencio.
 
-4. No hay columna de division.
+4. Div. sale de GSBER.
 
-   GSBER, WERKS, PRCTR y KOSTL estan vacios al 100% en las partidas ZR. Por eso la
-   columna Div. sale en blanco en el reporte manual: no hay nada que poner. Si algun dia
-   hace falta, tendria que venir de otra tabla cruzando por documento.
+   En las partidas ZR, GSBER (y WERKS, PRCTR, KOSTL) estaban vacios al 100%, por eso
+   antes no habia columna de division. Ahora que entran todas las clases de documento
+   se muestra GSBER como columna Div., pero no esta verificado que porcentaje de las
+   otras clases lo traiga relleno: puede seguir saliendo en blanco para muchas filas.
 
 5. No hay columna de moneda.
 
@@ -126,8 +129,6 @@ ORIGEN_BSIS = f"{PROJECT_ID}.D00_SANDBOX.bsis_real_time"
 ORIGEN_SOCIEDADES = f"{PROJECT_ID}.D20_DIMENSION.dm_company"
 DESTINO = f"{PROJECT_ID}.D60_REPORTING.Partidas_pendientes_evolucion"
 
-CLASE_DOCUMENTO = "ZR"
-
 # Las 16 sociedades del reporte, en el orden de las columnas del Excel de correos.
 # ADE queda fuera a proposito aunque tenga partidas abiertas: no esta en el Excel.
 SOCIEDADES = (
@@ -157,7 +158,7 @@ AVISO = "#a12626"
 # impresion. Es lo que evita que el correo y el adjunto se separen con el tiempo: hay una
 # sola definicion del layout, no dos.
 #
-# Horizontal, al contrario que anticipos: son siete columnas y una de ellas es texto libre.
+# Horizontal, al contrario que anticipos: son nueve columnas y una de ellas es texto libre.
 # En vertical el texto de los apuntes saldria partido en tres lineas.
 PDF_ORIENTACION = "landscape"
 AVISO_SIN_PDF = (
@@ -238,7 +239,7 @@ def verificar_frescura(client) -> datetime:
 
 def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, Any]]:
     """
-    Una fila por partida abierta de clase ZR.
+    Una fila por partida abierta, de cualquier clase de documento.
 
     Las fechas vienen como texto YYYYMMDD, y se leen con SAFE.PARSE_DATE porque SAP
     admite valores como '00000000' en fechas no informadas: con PARSE_DATE normal, una
@@ -251,9 +252,11 @@ def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, An
           BUKRS AS sociedad,
           IFNULL(HKONT, '') AS cuenta,
           IF(ENDS_WITH(IFNULL(HKONT, ''), 'I'), 'Ingreso', 'Egreso') AS tipo,
+          IFNULL(BLART, '') AS clase,
           GJAHR AS ejercicio,
           BELNR AS documento,
           BUZEI AS posicion,
+          IFNULL(GSBER, '') AS division,
           IFNULL(ZUONR, '') AS asignacion,
           SAFE.PARSE_DATE('%Y%m%d', BUDAT) AS fecha_contabilizacion,
           DATE_DIFF(
@@ -269,13 +272,11 @@ def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, An
           ) AS importe,
           IFNULL(SGTXT, '') AS texto
         FROM `{ORIGEN_BSIS}`
-        WHERE BLART = @clase
-          AND BUKRS IN UNNEST(@sociedades)
+        WHERE BUKRS IN UNNEST(@sociedades)
         ORDER BY sociedad, cuenta, dias_abierta DESC, documento, posicion
     """
     configuracion = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("clase", "STRING", CLASE_DOCUMENTO),
             bigquery.ArrayQueryParameter("sociedades", "STRING", list(sociedades)),
         ]
     )
@@ -381,9 +382,12 @@ def _esquema_destino():
         bigquery.SchemaField("sociedad", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("cuenta", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("tipo", "STRING", mode="REQUIRED"),
+        # NULLABLE porque una columna anadida con ALTER TABLE no puede ser REQUIRED.
+        bigquery.SchemaField("clase_documento", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("ejercicio", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("documento", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("posicion", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("division", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("asignacion", "STRING", mode="NULLABLE"),
         bigquery.SchemaField("fecha_contabilizacion", "DATE", mode="NULLABLE"),
         bigquery.SchemaField("dias_abierta", "INT64", mode="NULLABLE"),
@@ -402,6 +406,13 @@ def asegurar_tabla(client) -> None:
     )
     tabla.clustering_fields = ["sociedad", "cuenta"]
     client.create_table(tabla, exists_ok=True)
+    # Para las tablas creadas antes de que existieran estas columnas.
+    client.query(
+        f"ALTER TABLE `{DESTINO}` ADD COLUMN IF NOT EXISTS clase_documento STRING"
+    ).result()
+    client.query(
+        f"ALTER TABLE `{DESTINO}` ADD COLUMN IF NOT EXISTS division STRING"
+    ).result()
 
 
 def guardar_foto(
@@ -435,9 +446,11 @@ def guardar_foto(
             "sociedad": fila["sociedad"],
             "cuenta": fila["cuenta"],
             "tipo": fila["tipo"],
+            "clase_documento": fila["clase"],
             "ejercicio": fila["ejercicio"],
             "documento": fila["documento"],
             "posicion": fila["posicion"],
+            "division": fila["division"],
             "asignacion": fila["asignacion"],
             "fecha_contabilizacion": (
                 fila["fecha_contabilizacion"].isoformat()
@@ -611,7 +624,9 @@ def _tabla_cuenta(partidas: list[dict[str, Any]]) -> str:
                 color=AVISO if viejo else None,
             )
             + _celda(escape(fila["tipo"]))
+            + _celda(escape(fila["clase"] or "—"))
             + _celda(escape(fila["documento"]), fuerte=True)
+            + _celda(escape(fila["division"] or "—"))
             + _celda(escape(fila["asignacion"] or "—"))
             + _celda(escape(fila["texto"] or SIN_TEXTO))
             + _celda(escape(_importe(fila["importe"])), derecha=True, fuerte=True)
@@ -619,8 +634,9 @@ def _tabla_cuenta(partidas: list[dict[str, Any]]) -> str:
         )
 
     encabezado = _encabezado([
-        ("Fecha", False), ("Dias", True), ("Tipo", False), ("Documento", False),
-        ("Asignacion", False), ("Texto", False), ("Importe", True),
+        ("Fecha", False), ("Dias", True), ("Tipo", False), ("Clase", False),
+        ("Documento", False), ("Div.", False), ("Asignacion", False), ("Texto", False),
+        ("Importe", True),
     ])
     return (
         f'<table width="100%" cellpadding="0" cellspacing="0" '
@@ -628,7 +644,7 @@ def _tabla_cuenta(partidas: list[dict[str, Any]]) -> str:
         f'overflow:hidden;">'
         f"<thead>{encabezado}</thead>"
         f"<tbody>{''.join(cuerpo)}"
-        f"{_fila_total('Subtotal', _total(partidas), 6)}</tbody></table>"
+        f"{_fila_total('Subtotal', _total(partidas), 8)}</tbody></table>"
     )
 
 
@@ -812,8 +828,8 @@ def construir_html(
         <tr><td style="padding:0 28px 24px;">
           <p style="font-size:11px;color:#6b7280;margin:0;line-height:1.6;">
             Apuntes de cuentas de mayor que siguen sin compensar: cada linea es una pata
-            sin su contraparte. Se listan las de clase de documento {escape(CLASE_DOCUMENTO)},
-            de mas antigua a mas reciente. Las de {DIAS_PARA_AVISAR} dias o mas van
+            sin su contraparte. Se listan todas las clases de documento, de mas antigua a
+            mas reciente. Las de {DIAS_PARA_AVISAR} dias o mas van
             destacadas. El signo sigue al debe y al haber, asi que un subtotal puede salir
             negativo. <b>Todos los importes en pesos mexicanos.</b>
           </p>
@@ -1029,7 +1045,7 @@ def main() -> None:
     logging.info("Comprobando frescura del espejo de BSIS")
     verificar_frescura(client)
 
-    logging.info("Consultando partidas %s de %s sociedades", CLASE_DOCUMENTO, len(sociedades))
+    logging.info("Consultando partidas de %s sociedades", len(sociedades))
     filas = consultar_partidas(client, sociedades)
     agrupado = agrupar(filas, sociedades)
     nombres = consultar_nombres_sociedad(client, sociedades)

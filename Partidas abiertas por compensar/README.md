@@ -25,9 +25,9 @@ alguien tiene que perseguir, y lo que importa es **cuanto tiempo lleva abierta**
 cuentas de mayor. Es el hermano de `BSIK`, que indexa por proveedor y alimenta el reporte
 de anticipos; este indexa por cuenta contable.
 
-Se filtra **`BLART = 'ZR'`**, la clase de documento de los traspasos y movimientos de
-banco: unas 264 filas de las 1.487 de la tabla. El resto son otras clases (`KZ`, `DZ`,
-`DP`, `TR`…) que quedan fuera del alcance.
+**Entran todas las clases de documento (`BLART`).** Antes solo se mostraba `'ZR'`
+(traspasos y movimientos de banco), pero el cliente quiere ver el resto tambien. `BLART`
+se muestra en el reporte como columna `Clase`, para poder distinguirlas.
 
 **No hace falta filtrar por `AUGBL`.** De las 1.487 filas de la tabla solo una tiene
 documento de compensacion, y no es de clase `ZR`: el espejo no arrastra partidas ya
@@ -50,10 +50,11 @@ anticipos. La columna `company` de esa tabla esta vacia en las 87 filas: la buen
 | `HKONT` | Cuenta de mayor. **Terminada en `E` es egreso, en `I` es ingreso** |
 | `GJAHR` | Ejercicio. Parte de la clave |
 | `BELNR` / `BUZEI` | Documento contable y posicion |
-| `BLART` | Clase de documento |
+| `BLART` | Clase de documento. Se muestra en el reporte (columna `Clase`) |
 | `BUDAT` | Fecha de contabilizacion, texto `YYYYMMDD`. De aqui salen los dias abierta |
 | `SHKZG` | Debe (`S`) o haber (`H`) |
 | `DMBTR` | Importe en moneda local, siempre pesos |
+| `GSBER` | Division. Se muestra en el reporte (columna `Div.`) |
 | `ZUONR` | Campo de asignacion. Libre: a veces una fecha, a veces una referencia |
 | `SGTXT` | Texto del apunte |
 | `AUGBL` / `AUGDT` | Documento y fecha de compensacion. Vacios: si tuvieran valor, la partida no estaria abierta |
@@ -65,9 +66,11 @@ SELECT
   BUKRS AS sociedad,
   IFNULL(HKONT, '') AS cuenta,
   IF(ENDS_WITH(IFNULL(HKONT, ''), 'I'), 'Ingreso', 'Egreso') AS tipo,
+  IFNULL(BLART, '') AS clase,
   GJAHR AS ejercicio,
   BELNR AS documento,
   BUZEI AS posicion,
+  IFNULL(GSBER, '') AS division,
   IFNULL(ZUONR, '') AS asignacion,
   SAFE.PARSE_DATE('%Y%m%d', BUDAT) AS fecha_contabilizacion,
   DATE_DIFF(CURRENT_DATE('America/Mexico_City'),
@@ -76,8 +79,7 @@ SELECT
                               ELSE -CAST(DMBTR AS NUMERIC) END, 2) AS importe,
   IFNULL(SGTXT, '') AS texto
 FROM `proan-quantrue.D00_SANDBOX.bsis_real_time`
-WHERE BLART = 'ZR'
-  AND BUKRS IN UNNEST(@sociedades)
+WHERE BUKRS IN UNNEST(@sociedades)
 ORDER BY sociedad, cuenta, dias_abierta DESC, documento, posicion
 ```
 
@@ -90,9 +92,10 @@ Cuatro detalles que no son opcionales:
   informadas: con la version normal, una sola fila mal formada tumba la consulta entera.
 - **`CAST(DMBTR AS NUMERIC)`.** En el espejo `DMBTR` es `FLOAT`, y sumar dinero en coma
   flotante arrastra error. `NUMERIC` es aritmetica decimal exacta.
-- **No se filtra por sufijo de cuenta.** Entran `E` e `I`, y en las `ZR` no hay ninguna
-  cuenta con otro sufijo: filtrar por `HKONT LIKE '%I'` no quitaria ruido, quitaria 99 de
-  las 264 filas. El sufijo se usa para derivar la columna Tipo.
+- **No se filtra por sufijo de cuenta.** Entran `E` e `I`. Esta convencion solo se
+  verifico para las partidas `ZR`: al entrar el resto de clases de documento puede haber
+  cuentas que no sigan el patron y aun asi se clasifiquen como Egreso por defecto. El
+  sufijo se usa para derivar la columna Tipo, y se deja asi a proposito.
 
 ## Es un listado, no un motor de conciliacion
 
@@ -103,16 +106,20 @@ sociedad**. Ignorando la sociedad aparecen dos, y son traspasos entre empresas d
 `ZUONR` es un campo libre: de las 264 filas, 144 son numericas y solo 23 parecen una
 fecha; el resto son referencias con letras. Cada proceso mete lo que quiere.
 
+**Este analisis es de cuando el reporte solo cubria `ZR`**; no se ha repetido tras ampliar
+a todas las clases de documento.
+
 Asi que el reporte **agrupa por cuenta y lista**, como el reporte manual. Emparejar es
 trabajo de la persona. Dentro de cada cuenta se ordena **de mas antigua a mas reciente**,
 porque el valor esta en lo viejo, no en lo de ayer.
 
-## Lo que no se puede mostrar
+## Notas sobre columnas
 
-**No hay columna de division.** `GSBER`, `WERKS`, `PRCTR` y `KOSTL` estan vacios al 100% en
-las partidas `ZR`. Por eso la columna `Div.` sale en blanco en el reporte manual: no hay
-nada que poner. Si algun dia hace falta, tendria que venir de otra tabla cruzando por
-documento.
+**`Div.` sale de `GSBER`.** En las partidas `ZR`, `GSBER` (y `WERKS`, `PRCTR`, `KOSTL`)
+estaban vacios al 100%, por eso antes no habia columna de division. Ahora que entran todas
+las clases de documento se muestra `GSBER` como columna `Div.`, pero no esta verificado que
+porcentaje de las otras clases lo trae relleno: puede seguir saliendo en blanco para
+muchas filas.
 
 **No hay columna de moneda.** `DMBTR` es el importe en moneda local, siempre pesos
 mexicanos. Hay tres documentos emitidos en USD, y el reporte manual muestra su importe en
@@ -161,8 +168,8 @@ sistema, de diciembre de 2010— pero no esta en el Excel, asi que no hay a quie
 Si algun dia se quiere cubrir, basta anadirla a `SOCIEDADES` y crearle su grupo en la lista
 de correo.
 
-Solo unas siete de las dieciseis tienen partidas `ZR` en un dia normal. Las demas **reciben
-su correo igualmente**, con un «Sin partidas pendientes de compensar»: el silencio no se
+No todas las sociedades tienen partidas pendientes cada dia. Las que no, **reciben su
+correo igualmente**, con un «Sin partidas pendientes de compensar»: el silencio no se
 distingue de un proceso roto.
 
 ## Tabla de salida
@@ -176,8 +183,10 @@ distingue de un proceso roto.
 | `sociedad` | STRING | `BUKRS` |
 | `cuenta` | STRING | `HKONT` |
 | `tipo` | STRING | `Ingreso` o `Egreso`, del sufijo de la cuenta |
+| `clase_documento` | STRING | `BLART` |
 | `ejercicio` | STRING | `GJAHR` |
 | `documento` / `posicion` | STRING | `BELNR` / `BUZEI` |
+| `division` | STRING | `GSBER` |
 | `asignacion` | STRING | `ZUONR` |
 | `fecha_contabilizacion` | DATE | `BUDAT` |
 | `dias_abierta` | INT64 | Dias desde la contabilizacion |
@@ -209,8 +218,8 @@ codigo concreto, ese aparece como «(sin nombre en la maestra)».
 
 Cada sociedad se presenta con **una tabla por cuenta de mayor**, con su subtotal, y el
 total de la sociedad al final —que solo aparece si hay mas de una cuenta, porque con una
-sola seria repetir el mismo numero—. Las columnas son fecha, dias abierta, tipo,
-documento, asignacion, texto e importe.
+sola seria repetir el mismo numero—. Las columnas son fecha, dias abierta, tipo, clase,
+documento, division, asignacion, texto e importe.
 
 **Las partidas de 90 dias o mas van destacadas en rojo.** No es una regla contable: es un
 umbral para que lo viejo salte a la vista en un listado que puede pasar de cien filas. Se
@@ -242,7 +251,7 @@ papel roba ancho— y **se repite la fila de encabezado en cada hoja**. Eso ulti
 un detalle: el reporte de `DBC` pasa de cien filas, y sin encabezados repetidos a partir de
 la segunda pagina no se sabria que columna es cada una.
 
-Va en **A4 horizontal**, al contrario que anticipos: son siete columnas y una de ellas es
+Va en **A4 horizontal**, al contrario que anticipos: son nueve columnas y una de ellas es
 texto libre, que en vertical saldria partido en tres lineas.
 
 Las tipografias del correo (Barlow, Segoe UI) no existen en el contenedor, asi que el
