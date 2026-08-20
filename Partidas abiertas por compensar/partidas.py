@@ -207,7 +207,7 @@ def verificar_frescura(client) -> datetime:
     (a los minutos :06 y :02); BSIS se cargo a las 06:57 UTC, o sea las 00:57 de Mexico,
     y no se movio en el resto del dia. Minuto distinto, pipeline distinto.
 
-    Con eso, a las 10:10 de Mexico el dato de BSIS tiene unas 9 horas de vida, asi que un
+    Con eso, a las 10:00 de Mexico el dato de BSIS tiene unas 9 horas de vida, asi que un
     umbral de 6 lo rechazaria siempre. 20 horas funciona igual si la carga es diaria o si
     fuera mas frecuente, y sigue cazando un dia entero sin carga: a la hora del reporte
     eso serian unas 33 horas.

@@ -1,6 +1,6 @@
 # Reporte diario de partidas pendientes de compensar
 
-Cada dia, de lunes a sabado a las 10:10 de Mexico, lista las partidas de cuentas de mayor
+Cada dia, de lunes a sabado a las 10:00 de Mexico, lista las partidas de cuentas de mayor
 que siguen sin compensar en 16 sociedades, guarda una foto en BigQuery y envia un correo
 por sociedad mas uno consolidado. Sustituye el reporte que se sacaba a mano de SAP
 (`reportesEspeciales > reportePartidasPendientes`).
@@ -144,7 +144,7 @@ todos al mismo ritmo. Medido el 30/07/2026 a las 14:32 UTC:
 
 `BSIK` y `BSID` se reescriben cada dos horas, a los minutos `:06` y `:02`. **`BSIS` cargo a
 las 06:57 UTC —las 00:57 de Mexico— y no se movio en el resto del dia.** Minuto distinto,
-pipeline distinto. Con eso, a las 10:10 de Mexico el dato de BSIS tiene unas 9 horas, asi
+pipeline distinto. Con eso, a las 10:00 de Mexico el dato de BSIS tiene unas 9 horas, asi
 que un umbral de 6 lo rechazaria todos los dias.
 
 20 horas funciona en las dos hipotesis —carga diaria o mas frecuente— y sigue cazando un
@@ -285,12 +285,12 @@ El envio es por SendGrid, con el remitente en `to` y los destinatarios reales en
 
 ### Horario
 
-`10 10 * * 1-6` en `America/Mexico_City`: **de lunes a sabado a las 10:10 de Mexico**, diez
-minutos despues del reporte de anticipos. Si los dos salieran a la vez llegarian mas de
-veinte correos de golpe y costaria distinguir cual es cual.
+`0 10 * * 1-6` en `America/Mexico_City`: **de lunes a sabado a las 10:00 de Mexico**, media
+hora despues del reporte de anticipos (a las 9:30). Si los dos salieran a la vez llegarian
+mas de veinte correos de golpe y costaria distinguir cual es cual.
 
-Mexico va a **UTC−6 todo el ano** desde 2022, asi que las 10:10 de Mexico son las
-**16:10 UTC** y las **18:10 en Espana** en verano.
+Mexico va a **UTC−6 todo el ano** desde 2022, asi que las 10:00 de Mexico son las
+**16:00 UTC** y las **18:00 en Espana** en verano.
 
 ## Operacion
 

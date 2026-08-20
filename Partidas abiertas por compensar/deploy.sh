@@ -8,11 +8,11 @@ JOB_NAME="partidas-pendientes-diario"
 SCHEDULER_JOB_NAME="partidas-pendientes-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Lunes a sabado a las 10:10 de Mexico. Diez minutos despues del reporte de anticipos, a
-# proposito: si los dos salieran a la vez llegarian mas de veinte correos de golpe y
-# costaria distinguir cual es cual. El espejo de BSIS se recarga cada pocas horas, asi
-# que a esa hora el dato es del mismo dia.
-SCHEDULER_CRON="10 10 * * 1-6"
+# Lunes a sabado a las 10:00 de Mexico. Media hora despues del reporte de anticipos (a
+# las 9:30), a proposito: si los dos salieran a la vez llegarian mas de veinte correos de
+# golpe y costaria distinguir cual es cual. El espejo de BSIS se recarga cada pocas horas,
+# asi que a esa hora el dato es del mismo dia.
+SCHEDULER_CRON="0 10 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
