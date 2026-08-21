@@ -343,7 +343,7 @@ def build_email_html(fecha_str, hora_str, df, chart_src, chart_ok, logo_src):
         <tr><td style="padding:20px 28px 0;">{_insights_html(insights)}</td></tr>
         <tr><td style="padding:16px 28px 24px;border-top:1px solid {COLORS['border']};margin-top:16px;">
           <p style="font-family:'Segoe UI',Arial,sans-serif;font-size:10.5px;color:{COLORS['muted']};margin:14px 0 0;line-height:1.6;">
-            Última actualización: {fecha_str} {hora_str}  |  Fuente: BigQuery -- sap_faglflext  |  Versión: v2<br>
+            Última actualización: {fecha_str} {hora_str}  |  Fuente: BigQuery -- sap_faglflext_rt  |  Versión: v2<br>
             Vista previa manual -- cálculo pendiente de validar contra SAP ZF01 en vivo. El PDF adjunto trae el mismo detalle.
           </p>
         </td></tr>

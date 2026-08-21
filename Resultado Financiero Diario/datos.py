@@ -67,7 +67,9 @@ WITH base AS (
       + HSL11_TotalLocalCurrency11 + HSL12_TotalLocalCurrency12
       + HSL13_TotalLocalCurrency13 + HSL14_TotalLocalCurrency14
       + HSL15_TotalLocalCurrency15 + HSL16_TotalLocalCurrency16 AS saldo
-  FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext`
+  -- Cambiado 2026-08-21: antes sap_faglflext. Mismo esquema y saldos verificados,
+  -- sap_faglflext_rt se actualiza con mayor frecuencia.
+  FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`
   WHERE CAST(RYEAR_FiscalYear AS STRING) = v_anio
     -- Añadidos 2026-08-17: la query original solo filtraba el año. Hoy son redundantes (toda la
     -- tabla es 0L / 0 / 001, verificado), pero sin ellos cualquier ledger paralelo, registro de

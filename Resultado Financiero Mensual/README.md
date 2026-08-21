@@ -2,20 +2,21 @@
 
 ## Alcance
 
-Genera el día 1 de cada mes, a partir de `D30_INTEGRATION.sap_faglflext`, Ingresos/Egresos/
+Genera el día 1 de cada mes, a partir de `D30_INTEGRATION.sap_faglflext_rt`, Ingresos/Egresos/
 Resultado por sociedad para los **últimos 2 meses ya cerrados** (el mes en curso no aparece).
 Ambos meses llevan un chequeo de estabilidad contra un snapshot de ~14 días atrás (los
 cierres de SAP siguen recibiendo ajustes 2-4 semanas) -- el mes marcado `PROVISIONAL` puede
 seguir moviéndose, `SIN_REFERENCIA` significa que no había snapshot con qué comparar.
 
-**Fuente de datos (aclaración, 2026-08-17):** todos los importes que se reportan salen
-exclusivamente de `proan-quantrue.D30_INTEGRATION.sap_faglflext`. Los snapshots
-`D10_POSTPROCESSING.sap_faglflext2_YYYYMMDD` **no aportan ninguna cifra al reporte**: se leen
-solo como referencia histórica para el chequeo de estabilidad, porque `sap_faglflext` es una
-tabla viva sin histórico y sin una foto anterior no hay forma de saber si un mes cerrado
-sigue moviéndose. Decisión del usuario (2026-08-17): mantener el snapshot con ese único uso en
-lugar de perder el chequeo. Si algún día se quita, el reporte lee solo `sap_faglflext` pero
-desaparece la columna de estatus.
+**Fuente de datos (aclaración, 2026-08-17; tabla actualizada 2026-08-21):** todos los importes
+que se reportan salen exclusivamente de `proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`
+(antes `sap_faglflext` -- mismo esquema y saldos, se actualiza con mayor frecuencia). Los
+snapshots `D10_POSTPROCESSING.sap_faglflext2_YYYYMMDD` **no aportan ninguna cifra al
+reporte**: se leen solo como referencia histórica para el chequeo de estabilidad, porque
+`sap_faglflext_rt` es una tabla viva sin histórico y sin una foto anterior no hay forma de
+saber si un mes cerrado sigue moviéndose. Decisión del usuario (2026-08-17): mantener el
+snapshot con ese único uso en lugar de perder el chequeo. Si algún día se quita, el reporte lee
+solo `sap_faglflext_rt` pero desaparece la columna de estatus.
 
 **Superdoña Comercial (SCO1): resuelto el 2026-08-17.** Esa sociedad usa el plan de cuentas
 `PCSD` (cuentas de 6 dígitos rellenadas a 10, dígito significativo en la posición 5, no en la 4),

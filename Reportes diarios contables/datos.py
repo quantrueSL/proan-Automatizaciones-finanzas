@@ -198,7 +198,7 @@ def a_plantilla_importe(df, col):
 
 
 def build_query_mermas_ratio(raccts_mermas, years):
-    """Mermas y su base (Costo Total) en una sola pasada por sap_faglflext -- misma tabla y
+    """Mermas y su base (Costo Total) en una sola pasada por sap_faglflext_rt -- misma tabla y
     mismos filtros de ledger que el resto del reporte, sin tocar ninguna otra fuente.
 
     Dos sumas con criterios distintos a propósito, cada una como su proceso manual:

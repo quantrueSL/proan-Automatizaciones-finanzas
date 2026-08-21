@@ -2,7 +2,9 @@
 
 ## Alcance
 
-Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext` (única fuente de importes),
+Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext_rt` (única fuente de importes;
+antes `sap_faglflext`, cambiado el 2026-08-21 -- mismo esquema y saldos, se actualiza con mayor
+frecuencia),
 un PDF de 6 secciones -- una por página -- y lo envía por correo con un resumen visual
 (tarjetas + gráfico) en el cuerpo del mensaje.
 
@@ -87,9 +89,10 @@ python enviar_reporte.py --to a@b.com      # override explícito, salta la lista
 bash deploy.sh
 ```
 
-Job: `reporte-cuentas-diario`. Scheduler: `15 7 * * 1-6` (lunes a sábado, 07:15
-America/Mexico_City) -- antes de que el equipo entre, sin chocar con Anticipos (10:00) ni
-Partidas (10:10).
+Job: `reporte-cuentas-diario`. Scheduler: `0 14 * * 1-6` (lunes a sábado, 14:00
+America/Mexico_City) -- a la misma hora que `resultado-financiero-diario`, para que los dos
+reportes lleguen juntos (cambiado el 2026-08-20; antes 07:15). Muy separado de Anticipos
+(10:00), Partidas (10:10) y Clientes bloqueados (10:20).
 
 El `.env` queda excluido del build mediante `.gcloudignore`. Si cambias `.env`, vuelve a
 ejecutar `bash deploy.sh` -- ejecutar el Job a mano solo usa la configuración ya desplegada.

@@ -2,7 +2,9 @@
 
 ## Alcance
 
-Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext`, un cuadre contable por
+Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext_rt` (antes `sap_faglflext`,
+cambiado el 2026-08-21 -- mismo esquema y saldos, se actualiza con mayor frecuencia), un
+cuadre contable por
 sociedad: Balance vs. Estado de Resultados. PDF con header, tarjetas KPI, gráfico top 5, tabla
 con estatus por sociedad e insights automáticos. Envía el PDF por correo con el mismo contenido
 visible en el cuerpo del mensaje.
@@ -78,5 +80,5 @@ bash deploy.sh
 ```
 
 Job separado del de las 4 cuentas contables: `resultado-financiero-diario`. Scheduler:
-`45 7 * * 1-6` (lunes a sábado, 07:45 America/Mexico_City -- 30 min después del Job de las 4
+`0 14 * * 1-6` (lunes a sábado, 14:00 America/Mexico_City -- a la vez que el Job de las 4
 cuentas).

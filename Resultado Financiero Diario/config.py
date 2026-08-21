@@ -12,7 +12,11 @@ import os
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PROJECT_ID = "proan-quantrue"
-TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
+# Cambiado 2026-08-21: antes `sap_faglflext`. `sap_faglflext_rt` es la misma tabla (esquema
+# idéntico, mismo filtro 0L/0/001, mismos saldos verificados por sociedad) pero se actualiza
+# con mayor frecuencia. NOTA: esta constante no se usaba en datos.py (la query tenía la tabla
+# hardcodeada aparte) -- ver datos.py, también actualizado.
+TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`"
 
 # Tolerancia para considerar Dif. == 0 (evita falsos positivos por redondeo de centavos).
 # Pedido explícito del usuario para este reporte: "> 0.01".
@@ -94,7 +98,7 @@ SOCIEDADES = {
 
 # Hueco de cobertura conocido (2026-08-17): "Procesadora Tecnológica de Polímeros", que SÍ es
 # una fila de la tabla de referencia del PDF "Resultado financiero diario.pdf", no existe ni en
-# D20_DIMENSION.dm_company ni en sap_faglflext -- no hay ningún RBUKRS que le corresponda. Este
+# D20_DIMENSION.dm_company ni en sap_faglflext_rt -- no hay ningún RBUKRS que le corresponda. Este
 # reporte nunca la va a mostrar, y no es un error del código: la sociedad no está replicada en
 # BigQuery. Si finanzas la necesita en el cuadre, hay que pedir su alta a sistemas.
 

@@ -8,9 +8,11 @@ JOB_NAME="reporte-cuentas-diario"
 SCHEDULER_JOB_NAME="reporte-cuentas-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Confirmado con el usuario: lunes a sabado a las 07:15 de Mexico (antes de que el equipo
+# Cambiado 2026-08-20 a peticion del usuario: lunes a sabado a las 14:00 de Mexico, a la vez
+# que el Job de Resultado Financiero Diario, para que los dos reportes lleguen juntos.
+# (Antes: 07:15, antes de que el equipo
 # entre), para no chocar con Anticipos (10:00) ni Partidas (10:10).
-SCHEDULER_CRON="15 7 * * 1-6"
+SCHEDULER_CRON="0 14 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'

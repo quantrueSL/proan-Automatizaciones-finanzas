@@ -5,12 +5,18 @@ import os
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PROJECT_ID = "proan-quantrue"
-TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
+# Cambiado 2026-08-21: antes `sap_faglflext`. `sap_faglflext_rt` es la misma tabla (esquema
+# idéntico verificado en BigQuery, mismo filtro 0L/0/001, mismos saldos por sociedad) pero se
+# actualiza con mayor frecuencia -- confirmado con una comparación de saldos y conteo de filas
+# por sociedad contra `sap_faglflext` antes de cambiarla (diff = 0 en todas, _rt con algunas
+# filas más recientes).
+TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`"
 
 # Filtros fijos usados en la consulta validada por el usuario para Gastos no Deducibles.
-# Verificado en BigQuery (2026-08): las 417,443 filas de sap_faglflext tienen exactamente
-# esta combinación (0L / 0 / 001) -- la tabla no trae otra, así que estos filtros son
-# redundantes hoy. Se dejan de todos modos por seguridad ante un cambio futuro de datos.
+# Verificado en BigQuery (2026-08): las 417,443 filas de sap_faglflext (ahora sap_faglflext_rt)
+# tienen exactamente esta combinación (0L / 0 / 001) -- la tabla no trae otra, así que estos
+# filtros son redundantes hoy. Se dejan de todos modos por seguridad ante un cambio futuro de
+# datos.
 LEDGER = "0L"
 RECORD_TYPE = "0"
 VERSION = "001"
@@ -37,7 +43,7 @@ VERSION = "001"
 # en adelante -- no existe ningún snapshot del cierre de 2024 ni de 2025 (la tabla de
 # snapshots se empezó a llenar después de que ambos cierres ya habían pasado). Por decisión
 # del usuario, mientras tanto "anterior" se sigue calculando desde la tabla viva
-# sap_faglflext (mismo mecanismo de siempre, fetch_cuenta), con el riesgo ya documentado de
+# sap_faglflext_rt (mismo mecanismo de siempre, fetch_cuenta), con el riesgo ya documentado de
 # reclasificación de ejercicios cerrados (ver nota de Variación de Precios). Corregir esto
 # usando un snapshot real en cuanto exista uno tomado en un cierre (el próximo: dic. 2026).
 #
@@ -89,7 +95,7 @@ TITULOS_SECCION = {
 #    prefijo 000504), y GAGE = "Gastos generales", que es todo el resto (000501/000502/
 #    000503). Eso corresponde 1:1 con los dos únicos hijos de EGRESOS en el árbol de ZF01
 #    ("Costos" y "Gastos generales"). El catálogo se usó SOLO para obtener la lista de
-#    cuentas; todos los importes de este reporte salen de sap_faglflext y nada más.
+#    cuentas; todos los importes de este reporte salen de sap_faglflext_rt y nada más.
 # 2. Validado contra el Excel de finanzas "Mermas" (FY2024, con corte en el periodo 7):
 #    la suma de 000504% cuadra AL PESO en 9 sociedades -- CCP 657,173,985 · GSI
 #    6,252,798,495 · AME 610,530,076 · PAL 585,236,860 · MPE 284,112,661 · HEGP 232,217,290

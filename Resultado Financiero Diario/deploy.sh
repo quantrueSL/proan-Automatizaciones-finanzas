@@ -9,9 +9,10 @@ SCHEDULER_JOB_NAME="resultado-financiero-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
 # Confirmado con el usuario (2026-08-07): Job SEPARADO del Job "reporte-cuentas-diario" (las
-# 4 cuentas contables) -- no comparten Dockerfile, imagen, ni horario. 07:45 L-S: 30 minutos
-# después de ese Job (07:15) para no competir por recursos y salir poco después.
-SCHEDULER_CRON="45 7 * * 1-6"
+# 4 cuentas contables) -- no comparten Dockerfile ni imagen. Desde el 2026-08-20 SI comparten
+# horario: los dos corren a las 14:00 L-S por peticion del usuario, para que ambos reportes
+# lleguen a la misma hora. (Antes: este a las 07:45 y el otro a las 07:15.)
+SCHEDULER_CRON="0 14 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
