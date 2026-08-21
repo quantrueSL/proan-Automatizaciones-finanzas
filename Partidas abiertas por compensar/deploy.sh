@@ -71,11 +71,14 @@ gcloud services enable \
 echo -e "${YELLOW}Construyendo imagen...${NC}"
 gcloud builds submit --tag "${REPOSITORY_IMAGE}" .
 
+# 4Gi y no 1Gi: al quitar el filtro BLART='ZR' el volumen subio de ~264 a varios miles de
+# filas, y el correo consolidado genera un solo PDF en WeasyPrint con todas las
+# sociedades juntas. Con 1Gi el Job murio por falta de memoria (OOM) el 2026-08-21.
 echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 1Gi \
+  --memory 4Gi \
   --cpu 1 \
   --task-timeout 900 \
   --max-retries 1
