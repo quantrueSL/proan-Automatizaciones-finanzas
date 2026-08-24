@@ -71,11 +71,15 @@ gcloud services enable \
 echo -e "${YELLOW}Construyendo imagen...${NC}"
 gcloud builds submit --tag "${REPOSITORY_IMAGE}" .
 
+# 4Gi por consistencia con el resto de automatizaciones, tras el OOM de Partidas abiertas
+# por compensar. Este Job no genera PDF ni maneja grandes volumenes, asi que no compartia
+# ese riesgo, pero el coste extra es insignificante para un Job que corre un par de
+# minutos al dia.
 echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 512Mi \
+  --memory 4Gi \
   --cpu 1 \
   --task-timeout 900 \
   --max-retries 1

@@ -78,11 +78,15 @@ gcloud services enable \
 echo -e "${YELLOW}Construyendo imagen...${NC}"
 gcloud builds submit --tag "${REPOSITORY_IMAGE}" .
 
+# 4Gi por consistencia con el resto de automatizaciones, tras el OOM de Partidas
+# abiertas por compensar. Este Job usa reportlab con consultas agregadas pequenas, asi
+# que no comparte ese riesgo, pero el coste extra es insignificante para un Job que
+# corre un par de minutos al dia.
 echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 1Gi \
+  --memory 4Gi \
   --cpu 1 \
   --task-timeout 900 \
   --max-retries 1
@@ -118,10 +122,14 @@ echo -e "${YELLOW}Concediendo permisos al Scheduler para ejecutar el Job...${NC}
 # (solo Owner/roles admin de IAM lo tienen). Sin este binding, el Scheduler se crea igual pero
 # el Job le devolverá 403 al intentar invocarlo -- hace falta que alguien con más permisos
 # corra el mismo comando una vez (se imprime abajo si falla).
+# IAM_BINDING_OK se usa al final del script para que el deploy termine con exit code 1 si
+# esto falla, en vez de reportar "Deployment completado" como si todo hubiera ido bien.
+IAM_BINDING_OK=true
 if ! gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
   --region "${REGION}" \
   --member "serviceAccount:${SCHEDULER_SA}" \
   --role "roles/run.invoker" >/dev/null 2>&1; then
+  IAM_BINDING_OK=false
   echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual).${NC}"
   echo -e "${YELLOW}El Scheduler se va a crear igual, pero NO podrá invocar el Job hasta que alguien con más permisos corra:${NC}"
   echo "  gcloud run jobs add-iam-policy-binding ${JOB_NAME} --region ${REGION} --member serviceAccount:${SCHEDULER_SA} --role roles/run.invoker --project ${PROJECT_ID}"
@@ -169,3 +177,8 @@ echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"
 echo -e "${GREEN}Ejecucion manual:${NC}"
 echo "gcloud run jobs execute ${JOB_NAME} --region ${REGION} --wait"
+
+if [ "${IAM_BINDING_OK}" = false ]; then
+  echo -e "${YELLOW}ATENCION: el Scheduler no puede invocar el Job todavia. Corre el comando de arriba antes de confiar en el envio automatico de manana.${NC}"
+  exit 1
+fi

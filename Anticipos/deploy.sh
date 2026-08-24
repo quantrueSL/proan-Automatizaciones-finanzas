@@ -69,11 +69,14 @@ gcloud services enable \
 echo -e "${YELLOW}Construyendo imagen...${NC}"
 gcloud builds submit --tag "${REPOSITORY_IMAGE}" .
 
+# 4Gi y no 1Gi: el correo consolidado genera un solo PDF en WeasyPrint uniendo todas las
+# sociedades, el mismo patron que hizo OOM en Partidas abiertas por compensar al crecer
+# el volumen de filas. Este Job no se ha roto todavia, pero comparte el mismo riesgo.
 echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 1Gi \
+  --memory 4Gi \
   --cpu 1 \
   --task-timeout 900 \
   --max-retries 1
