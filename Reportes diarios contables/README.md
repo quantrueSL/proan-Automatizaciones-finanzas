@@ -5,27 +5,32 @@
 Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext_rt` (única fuente de importes;
 antes `sap_faglflext`, cambiado el 2026-08-21 -- mismo esquema y saldos, se actualiza con mayor
 frecuencia),
-un PDF de 6 secciones -- una por página -- y lo envía por correo con un resumen visual
+un PDF de 7 secciones -- una por página -- y lo envía por correo con un resumen visual
 (tarjetas + gráfico) en el cuerpo del mensaje.
 
-Cubre 4 cuentas, pero Mermas y Descuentos salen cada una en **dos formas** porque no está
+Cubre 5 cuentas, pero Mermas y Descuentos salen cada una en **dos formas** porque no está
 decidido cuál es el criterio correcto y finanzas tiene que elegir viéndolas lado a lado:
 
 | # | Sección | Forma |
 |---|---|---|
 | 1 | Gastos no Deducibles | Importe |
-| 2 | Mermas — Importe | Importe |
-| 3 | Mermas — % sobre Costo Total | Razón |
-| 4 | Descuentos y Bonificaciones — Importe | Importe |
-| 5 | Descuentos y Bonificaciones — % sobre Ingresos | Razón |
-| 6 | Variación de Precios | Importe |
+| 2 | Pasivo Temporal | Importe |
+| 3 | Mermas — Importe | Importe |
+| 4 | Mermas — % sobre Costo Total | Razón |
+| 5 | Descuentos y Bonificaciones — Importe | Importe |
+| 6 | Descuentos y Bonificaciones — % sobre Ingresos | Razón |
+| 7 | Variación de Precios | Importe |
+
+Pasivo Temporal (`RACCT 0002090000`) se agregó el 2026-08-27 a pedido del usuario -- misma
+Plantilla A que Gastos no Deducibles (neto Debe-Haber, sin ratio propia), ver la nota en
+`config.py` junto a `CUENTAS["Pasivo Temporal"]`.
 
 - **Importe** (Plantilla A): solo la cantidad económica de la cuenta en cada sociedad, año
   actual vs. anterior, diferencia y % de variación entre periodos.
 - **Razón** (Plantilla B): la cuenta contra su base en los dos periodos --- Mermas sobre el
   Costo Total (grupo de cuentas CTOS, `RACCT 000504%`), Descuentos sobre los Ingresos.
 
-Las cuatro cuentas usan las mismas columnas de periodo (año en curso vs. año anterior), por
+Las cinco cuentas usan las mismas columnas de periodo (año en curso vs. año anterior), por
 decisión explícita del usuario. En **Variación de Precios** eso tiene una salvedad importante,
 avisada y aceptada: el cierre anual reclasifica esa cuenta y borra del ejercicio cerrado
 movimientos que sí existían cuando el año estaba abierto, así que la mayoría de sociedades tiene
@@ -89,10 +94,11 @@ python enviar_reporte.py --to a@b.com      # override explícito, salta la lista
 bash deploy.sh
 ```
 
-Job: `reporte-cuentas-diario`. Scheduler: `0 14 * * 1-6` (lunes a sábado, 14:00
+Job: `reporte-cuentas-diario`. Scheduler: `0 17 * * 1-6` (lunes a sábado, 17:00
 America/Mexico_City) -- a la misma hora que `resultado-financiero-diario`, para que los dos
-reportes lleguen juntos (cambiado el 2026-08-20; antes 07:15). Muy separado de Anticipos
-(10:00), Partidas (10:10) y Clientes bloqueados (10:20).
+reportes lleguen juntos (cambiado el 2026-08-27, a petición del usuario; antes 14:00 desde el
+2026-08-20, y 07:15 antes de eso). Muy separado de Anticipos (10:00), Partidas (10:10) y
+Clientes bloqueados (10:20).
 
 El `.env` queda excluido del build mediante `.gcloudignore`. Si cambias `.env`, vuelve a
 ejecutar `bash deploy.sh` -- ejecutar el Job a mano solo usa la configuración ya desplegada.

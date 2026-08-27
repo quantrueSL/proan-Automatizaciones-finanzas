@@ -79,6 +79,7 @@ python enviar_reporte.py --to a@b.com   # override, salta la lista de Firestore
 bash deploy.sh
 ```
 
-Job separado del de las 4 cuentas contables: `resultado-financiero-diario`. Scheduler:
-`0 14 * * 1-6` (lunes a sábado, 14:00 America/Mexico_City -- a la vez que el Job de las 4
-cuentas).
+Job separado del de las cuentas contables: `resultado-financiero-diario`. Scheduler:
+`0 17 * * 1-6` (lunes a sábado, 17:00 America/Mexico_City -- a la vez que el Job de
+"Reportes diarios contables", cambiado el 2026-08-27; antes 14:00 desde el 2026-08-20, y
+07:45 antes de eso).
