@@ -179,6 +179,10 @@ Se escribe con el **decorador de particion** (`Anticipos_evolucion$YYYYMMDD`) y
 desaparecer** de la foto, y un `MERGE` actualiza e inserta pero no borra lo que dejo de
 existir.
 
+**Tambien se lee**, no solo se escribe: la columna «Total ayer» del resumen del correo
+consolidado (ver «El correo» mas abajo) sale de releer esta misma tabla con
+`fecha_reporte = ayer`, agrupado por sociedad.
+
 ## El correo
 
 Cada sociedad aparece con su **codigo y su razon social**: «Sociedad PAN - Proteina Animal
@@ -197,14 +201,28 @@ un codigo concreto, ese aparece como «(sin nombre en la maestra)», igual que s
 proveedores.
 
 Cada sociedad se presenta con el detalle de sus anticipos — cuenta, proveedor, nombre y
-saldo, ordenado de mayor a menor — y su total. Si no tiene ninguno, sale un «Sin anticipos
-pendientes» en su lugar.
+saldo, ordenado de mayor a menor —, su total, y el **total de ayer** de esa sociedad. Si
+no tiene ningun anticipo hoy, sale un «Sin anticipos pendientes» seguido igualmente del
+total de ayer: que hoy este vacio y ayer no lo estuviera es justo el cambio que se quiere
+ver de un vistazo.
 
 Se envian dos tipos de correo:
 
-- **Uno por sociedad**, con el detalle de esa sociedad.
-- **Uno consolidado** con las 16, que empieza con un resumen (sociedad y total) y sigue
-  con el detalle.
+- **Uno por sociedad**, con el detalle de esa sociedad y su total de ayer.
+- **Uno consolidado** con las 16, que empieza con un resumen (sociedad, total de hoy y
+  total de ayer) y sigue con el detalle de cada una, cada bloque con su propio total de
+  ayer otra vez.
+
+**«Total ayer» esta a nivel de sociedad, no de linea**: comparar linea a linea exigiria
+cruzar por proveedor y cuenta entre dos dias, y como los anticipos aparecen y se resuelven
+todo el tiempo, la mayoria de lineas saldrian sin dato. A nivel de sociedad el numero si
+es estable y comparable dia a dia.
+
+Sale de releer `Anticipos_evolucion` con `fecha_reporte = ayer` (ver «Tabla de salida»
+mas arriba). Una sociedad sin fila para ayer se trata como que no tenia anticipos ese
+dia (0,00), no como un error. **Si la relectura entera falla**, la columna y todas las
+lineas de «Total ayer» salen con «-»: el resto del correo se envia igual, sin dato de ayer
+no deja de ser el reporte de hoy.
 
 ### El PDF adjunto
 

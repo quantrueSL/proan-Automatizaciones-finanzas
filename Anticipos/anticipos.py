@@ -84,6 +84,12 @@ tabla no hay forma de saber que un anticipo existio ni cuanto tiempo estuvo abie
 La escritura usa el decorador de particion con WRITE_TRUNCATE, asi que reejecutar el
 proceso el mismo dia reemplaza la foto del dia entera, sin duplicar ni dejar restos.
 
+Esta misma tabla es tambien la fuente del "Total ayer" que aparece en el resumen del
+correo consolidado y en el bloque de cada sociedad (consolidado e individual): se relee
+(fecha_reporte = ayer) para comparar contra el total de hoy. Una sociedad sin fila para
+ayer se trata como que no tenia anticipos ese dia (0), no como un error. Si la relectura
+entera falla, la columna sale con "-" en vez de un 0 enganoso.
+
 Destinatarios
 -------------
 Documento Firestore lists/anticipos, con dos bloques:
@@ -334,6 +340,44 @@ def consultar_nombres_sociedad(client, sociedades: tuple[str, ...]) -> dict[str,
     return nombres
 
 
+def consultar_totales_ayer(
+    client, sociedades: tuple[str, ...], fecha_ayer
+) -> dict[str, Decimal] | None:
+    """
+    Total de saldo_neto por sociedad en la foto de ayer (DESTINO), para la columna
+    "Total ayer" del resumen del correo consolidado.
+
+    Una sociedad sin fila para esa fecha no tenia anticipos ese dia: se trata como 0,
+    igual que hace el resto del reporte con "sin anticipos". Si la consulta entera falla,
+    se devuelve None y el resumen muestra "-" en vez de un 0 enganoso: no es lo mismo no
+    tener dato que tener un total de cero.
+    """
+    from google.cloud import bigquery
+
+    consulta = f"""
+        SELECT sociedad, SUM(saldo_neto) AS total
+        FROM `{DESTINO}`
+        WHERE fecha_reporte = @fecha
+          AND sociedad IN UNNEST(@sociedades)
+        GROUP BY sociedad
+    """
+    configuracion = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("fecha", "DATE", fecha_ayer.isoformat()),
+            bigquery.ArrayQueryParameter("sociedades", "STRING", list(sociedades)),
+        ]
+    )
+
+    try:
+        return {
+            fila["sociedad"]: fila["total"]
+            for fila in client.query(consulta, job_config=configuracion).result()
+        }
+    except Exception as exc:
+        logging.warning("No se pudo leer el total de ayer: %s", exc)
+        return None
+
+
 def _etiqueta_sociedad(codigo: str, nombres: dict[str, str]) -> str:
     """'PAN - Proteina Animal SA de CV', o solo el codigo si no hay nombre."""
     if not nombres:
@@ -571,14 +615,19 @@ def _encabezado(titulos: list[tuple[str, bool]]) -> str:
     return f'<tr style="background:{AZUL};">{celdas}</tr>'
 
 
-def _fila_total(etiqueta: str, valor: Decimal, columnas_previas: int) -> str:
+def _fila_total(etiqueta: str, valores: list[Decimal | None], columnas_previas: int) -> str:
+    """Fila de total. Una celda de valor por cada elemento de `valores`; `None` sale como "-"."""
+    celdas_valor = "".join(
+        f'<td style="padding:10px 12px;text-align:right;font-size:13px;font-weight:800;'
+        f'color:{AZUL};">{escape(_importe(valor) if valor is not None else "-")}</td>'
+        for valor in valores
+    )
     return (
         "<tr>"
         f'<td colspan="{columnas_previas}" style="padding:10px 12px;text-align:right;'
         f'font-size:11px;font-weight:700;color:{AZUL};text-transform:uppercase;'
         f'letter-spacing:.5px;">{escape(etiqueta)}</td>'
-        f'<td style="padding:10px 12px;text-align:right;font-size:13px;font-weight:800;'
-        f'color:{AZUL};">{escape(_importe(valor))}</td>'
+        f"{celdas_valor}"
         "</tr>"
     )
 
@@ -605,7 +654,7 @@ def _tabla_detalle(filas: list[dict[str, Any]], etiqueta_total: str) -> str:
         f'overflow:hidden;">'
         f"<thead>{encabezado}</thead>"
         f"<tbody>{''.join(cuerpo)}"
-        f"{_fila_total(etiqueta_total, _total(filas), 3)}</tbody></table>"
+        f"{_fila_total(etiqueta_total, [_total(filas)], 3)}</tbody></table>"
     )
 
 
@@ -613,8 +662,16 @@ def _bloque_sociedad(
     sociedad: str,
     filas: list[dict[str, Any]],
     nombres: dict[str, str],
+    totales_ayer: dict[str, Decimal] | None,
 ) -> str:
-    """Bloque de una sociedad: titulo, y la tabla de anticipos si hay alguno."""
+    """
+    Bloque de una sociedad: titulo, la tabla de anticipos si hay alguno, y el total de
+    ayer. Se usa tanto en el correo por sociedad como, una vez por cada una, dentro del
+    consolidado.
+
+    El total de ayer se muestra siempre, incluso sin anticipos hoy: que hoy este vacio y
+    ayer no lo estuviera es justo el tipo de cambio que se quiere ver de un vistazo.
+    """
     partes = [
         f'<p class="titulo-sociedad" style="font-family:Barlow,\'Segoe UI\',Arial,sans-serif;'
         f'font-size:16px;color:{AZUL};font-weight:800;margin:28px 0 2px;">'
@@ -626,15 +683,21 @@ def _bloque_sociedad(
             '<p style="font-size:13px;color:#4b5563;margin:4px 0 8px;">'
             "Sin anticipos pendientes.</p>"
         )
-        return "".join(partes)
+    else:
+        partes.append(
+            f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
+            f'margin:16px 0 2px;">{escape(TITULO_ANTICIPOS)}</p>'
+            f'<p class="titulo-seccion" style="font-size:11px;color:#6b7280;margin:0 0 8px;">'
+            f"{escape(NOTA_ANTICIPOS)}</p>"
+        )
+        partes.append(_tabla_detalle(filas, f"Total {TITULO_ANTICIPOS.lower()}"))
 
+    total_ayer = totales_ayer.get(sociedad, Decimal("0")) if totales_ayer is not None else None
+    texto_ayer = _importe(total_ayer) if total_ayer is not None else "-"
     partes.append(
-        f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
-        f'margin:16px 0 2px;">{escape(TITULO_ANTICIPOS)}</p>'
-        f'<p class="titulo-seccion" style="font-size:11px;color:#6b7280;margin:0 0 8px;">'
-        f"{escape(NOTA_ANTICIPOS)}</p>"
+        f'<p style="font-size:12px;color:{AZUL};font-weight:700;margin:6px 0 0;'
+        f'text-align:right;">Total ayer: {escape(texto_ayer)}</p>'
     )
-    partes.append(_tabla_detalle(filas, f"Total {TITULO_ANTICIPOS.lower()}"))
 
     return "".join(partes)
 
@@ -656,18 +719,34 @@ def _celda_sociedad(codigo: str, nombres: dict[str, str]) -> str:
 def _resumen_sociedades(
     agrupado: dict[str, list[dict[str, Any]]],
     nombres: dict[str, str],
+    totales_ayer: dict[str, Decimal] | None,
 ) -> str:
-    """Tabla de totales por sociedad, solo para el correo global."""
+    """
+    Tabla de totales por sociedad, solo para el correo global.
+
+    `totales_ayer` es None cuando la consulta de ayer fallo entera (ver
+    consultar_totales_ayer): en ese caso la columna "Total ayer" sale con "-" en vez de
+    un 0 que se confundiria con "ayer no habia anticipos".
+    """
     filas = []
     gran_total = Decimal("0")
+    gran_total_ayer: Decimal | None = Decimal("0") if totales_ayer is not None else None
 
     for sociedad, partidas in agrupado.items():
         total = _total(partidas)
         gran_total += total
+
+        total_ayer = totales_ayer.get(sociedad, Decimal("0")) if totales_ayer is not None else None
+        if gran_total_ayer is not None and total_ayer is not None:
+            gran_total_ayer += total_ayer
+
         filas.append(
             "<tr>"
             + _celda_sociedad(sociedad, nombres)
             + _celda(escape(_importe(total)), derecha=True, fuerte=True)
+            + _celda(
+                escape(_importe(total_ayer) if total_ayer is not None else "-"), derecha=True
+            )
             + "</tr>"
         )
 
@@ -675,6 +754,7 @@ def _resumen_sociedades(
         [
             ("Sociedad", False),
             (TITULO_ANTICIPOS, True),
+            ("Total ayer", True),
         ]
     )
     return (
@@ -683,7 +763,7 @@ def _resumen_sociedades(
         f'overflow:hidden;margin-bottom:8px;">'
         f"<thead>{encabezado}</thead>"
         f"<tbody>{''.join(filas)}"
-        f"{_fila_total('Total general', gran_total, 1)}</tbody></table>"
+        f"{_fila_total('Total general', [gran_total, gran_total_ayer], 1)}</tbody></table>"
     )
 
 
@@ -897,6 +977,7 @@ def enviar_reportes(
     globales: list[str],
     por_sociedad: dict[str, list[str]],
     nombres: dict[str, str],
+    totales_ayer: dict[str, Decimal] | None,
 ) -> list[dict[str, Any]]:
     fecha_texto = fecha_reporte.strftime("%d/%m/%Y")
     sufijo_fichero = fecha_reporte.strftime("%Y%m%d")
@@ -923,12 +1004,12 @@ def enviar_reportes(
     # Un unico correo con todas las sociedades para quien las sigue todas.
     if globales:
         bloques = "".join(
-            _bloque_sociedad(sociedad, filas_sociedad, nombres)
+            _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer)
             for sociedad, filas_sociedad in agrupado.items()
         )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
-            _resumen_sociedades(agrupado, nombres) + bloques,
+            _resumen_sociedades(agrupado, nombres, totales_ayer) + bloques,
             "anticipos_todas_las_sociedades",
         )
         resultados.append(
@@ -956,7 +1037,7 @@ def enviar_reportes(
         html, pdf, nombre_pdf = preparar(
             f"Sociedad {_etiqueta_sociedad(sociedad, nombres)}. "
             f"Fecha de consulta {fecha_texto}.",
-            _bloque_sociedad(sociedad, filas_sociedad, nombres),
+            _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer),
             # El nombre del fichero se queda con el codigo: corto y sin caracteres raros.
             f"anticipos_{sociedad}",
         )
@@ -1004,6 +1085,10 @@ def main() -> None:
     asegurar_tabla(client)
     guardar_foto(client, filas, fecha_reporte, ahora)
 
+    totales_ayer = consultar_totales_ayer(client, sociedades, fecha_reporte - timedelta(days=1))
+    if totales_ayer is None:
+        logging.warning("No se pudo obtener el total de ayer para el resumen consolidado")
+
     globales, por_sociedad, origen = resolver_destinatarios()
     logging.info(
         "Destinatarios desde %s: %s globales, %s sociedades con lista propia",
@@ -1012,7 +1097,9 @@ def main() -> None:
         len(por_sociedad),
     )
 
-    resultados = enviar_reportes(agrupado, fecha_reporte, globales, por_sociedad, nombres)
+    resultados = enviar_reportes(
+        agrupado, fecha_reporte, globales, por_sociedad, nombres, totales_ayer
+    )
     for resultado in resultados:
         logging.info("Correo: %s", resultado)
 
