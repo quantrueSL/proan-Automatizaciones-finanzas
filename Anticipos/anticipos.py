@@ -3,53 +3,44 @@ Reporte diario de anticipos a proveedores por sociedad.
 
 Que se considera un anticipo
 ----------------------------
-Dos cosas distintas, y el reporte incluye las dos en secciones separadas:
+ANTICIPOS A PROVEEDORES (UMSKZ = 'A'). Operaciones en cuenta especial que alguien
+registro en SAP declarandolas como anticipo, contabilizadas en cuentas de activo
+(10801xx, 0000140110). Son los anticipos canonicos.
 
-1. ANTICIPOS A PROVEEDORES (UMSKZ = 'A'). Operaciones en cuenta especial que alguien
-   registro en SAP declarandolas como anticipo, contabilizadas en cuentas de activo
-   (10801xx, 0000140110). Son los anticipos canonicos.
+Hasta 2026-08-27 el reporte tambien incluia los SALDOS DEUDORES EN CUENTAS DE PROVEEDOR
+(UMSKZ vacio: partidas normales de acreedor cuyo saldo neto salia positivo, es decir
+pagos de mas sin declarar como anticipo). Se quitaron a peticion del usuario: el reporte
+ahora es solo de los anticipos formales.
 
-2. SALDOS DEUDORES EN CUENTAS DE PROVEEDOR (UMSKZ vacio). Partidas normales de acreedor
-   cuyo saldo neto sale positivo: se ha pagado al proveedor mas de lo que se le debia.
-   Anticipos de hecho, aunque nadie los declarara como tal.
-
-En los dos casos el calculo es el mismo: saldo neto de las partidas abiertas agrupadas
-por sociedad + indicador + cuenta + proveedor, con el signo que marca SHKZG ('S' debe
-suma, 'H' haber resta), quedandose con los positivos. Excepcion: en los anticipos
-formales (UMSKZ = 'A') tambien se incluyen los que salen en negativo, porque el cliente
-los quiere ver igual; antes se descartaban junto con el resto de negativos.
+El calculo es el saldo neto de las partidas abiertas de UMSKZ = 'A', agrupadas por
+sociedad + cuenta + proveedor, con el signo que marca SHKZG ('S' debe suma, 'H' haber
+resta). Entran tanto los saldos positivos como los negativos: el cliente quiere ver
+tambien los anticipos formales que salen en negativo (antes se descartaban junto con el
+resto de negativos; solo se excluye un saldo exactamente en cero, que no es nada que
+reportar).
 
 Decisiones tomadas, con su motivo
 ---------------------------------
-1. Entran los dos tipos, en secciones separadas del correo.
+1. Se filtra UMSKZ = 'A' en el propio WHERE, no en el GROUP BY.
 
-   El reporte manual de SAP solo mostraba los saldos deudores. Los UMSKZ = 'A' son varias
-   veces mas importe, y hay sociedades sin ningun pago de mas que si tienen anticipos
-   declarados: dejarlos fuera daba una foto incompleta.
+   Antes el reporte tambien mostraba UMSKZ vacio (saldos deudores) y necesitaba UMSKZ en
+   el GROUP BY para no mezclar un anticipo formal ('A') con su propia solicitud ('F'),
+   que comparte cuenta de mayor. Al filtrar ya en el WHERE a solo 'A', las filas 'F' ni
+   entran en el calculo, asi que ese GROUP BY ya no hace falta.
 
-   No se suman en un unico total para que la cifra del reporte de siempre siga siendo
-   reconocible en su propia seccion.
-
-2. Se excluyen UMSKZ = 'F' y 'H'.
+2. Se excluyen UMSKZ = 'F' y 'H' (y ahora tambien UMSKZ vacio).
 
    'F' es una SOLICITUD de anticipo: un apunte estadistico para planificar pagos, no
-   dinero movido. Sumarla a un saldo real es contar dos veces. 'H' son otros indicadores
-   especiales, ajenos a este reporte.
+   dinero movido. 'H' son otros indicadores especiales, ajenos a este reporte. El vacio
+   (saldos deudores) se excluyo el 2026-08-27 a peticion del usuario.
 
-3. UMSKZ forma parte del GROUP BY.
-
-   Es lo que impide que un anticipo formal se sume con su propia solicitud: 'A' y 'F'
-   comparten cuenta de mayor, asi que agrupar solo por cuenta las mezclaria. Se comprobo
-   sobre una foto de la tabla que pasaria en 42 grupos. Con UMSKZ en el GROUP BY el
-   problema no puede darse, independientemente de las cuentas que use contabilidad.
-
-4. No se filtra por cuenta de mayor.
+3. No se filtra por cuenta de mayor.
 
    El anticipo lo define el signo del saldo, no la cuenta. Las cuentas que aparecen en un
-   reporte concreto son las que tenian saldo deudor ese dia en esa sociedad, no una lista
+   reporte concreto son las que tenian saldo ese dia en esa sociedad, no una lista
    cerrada. La cuenta se muestra como columna informativa.
 
-5. El nombre del proveedor sale de D20_DIMENSION.dm_vendors, no de LFA1.
+4. El nombre del proveedor sale de D20_DIMENSION.dm_vendors, no de LFA1.
 
    dm_vendors cubre el 100% de los proveedores de BSIK y tiene un nombre de tabla
    estable. LFA1 vive en snapshots con la fecha en el nombre (proan_LFA1_20260728), que
@@ -64,12 +55,12 @@ Decisiones tomadas, con su motivo
    falta deduplicar. La columna `company` de esa tabla esta vacia en las 87 filas: la
    buena es company_name.
 
-6. DMBTR se convierte a NUMERIC antes de sumar.
+5. DMBTR se convierte a NUMERIC antes de sumar.
 
    En la tabla espejo DMBTR es FLOAT. Sumar importes en coma flotante arrastra error;
    NUMERIC es aritmetica decimal exacta, que es lo que corresponde a dinero.
 
-7. Se aborta si el espejo esta caducado.
+6. Se aborta si el espejo esta caducado.
 
    bsik_real_time no la carga el Airflow del DWH: es un espejo que un replicador
    externo reescribe entera cada dos horas (todas las filas comparten marca de
@@ -80,6 +71,10 @@ Decisiones tomadas, con su motivo
 Persistencia
 ------------
 Se guarda una foto diaria en D60_REPORTING.Anticipos_evolucion, particionada por dia.
+
+La columna `tipo` sigue existiendo y siempre vale 'anticipo': se conserva por
+continuidad historica con las filas de antes de 2026-08-27, que si distinguian
+'saldo_deudor'. No se ha borrado esa columna de la tabla ni se ha tocado el historico.
 
 Es la unica historia que existe: BSIK solo contiene partidas ABIERTAS, cuando un
 anticipo se compensa la fila desaparece, el espejo se reescribe cada dos horas y
@@ -129,23 +124,13 @@ SOCIEDADES = (
     "PIN", "SAP", "ABP", "AME", "CCP", "PAL", "PAT", "BAG",
 )
 
-# Los dos tipos de anticipo, en el orden en que aparecen en el correo. El primero es el
-# anticipo declarado en SAP; el segundo, el pago de mas en una cuenta de proveedor.
+# El unico tipo que reporta este proceso: el anticipo declarado en SAP (UMSKZ = 'A').
+# Se conserva como columna en BigQuery por continuidad historica (ver docstring del
+# modulo); ya no hay un segundo tipo en el correo desde que se quitaron los saldos
+# deudores el 2026-08-27.
 TIPO_ANTICIPO = "anticipo"
-TIPO_SALDO_DEUDOR = "saldo_deudor"
-TIPOS = (
-    (
-        TIPO_ANTICIPO,
-        "Anticipos a proveedores",
-        "Registrados en SAP como anticipo, en cuentas de activo.",
-    ),
-    (
-        TIPO_SALDO_DEUDOR,
-        "Saldos deudores en cuentas de proveedor",
-        "Sin indicador especial: se ha pagado mas de lo que se debia.",
-    ),
-)
-ETIQUETAS_TIPO = {clave: etiqueta for clave, etiqueta, _ in TIPOS}
+TITULO_ANTICIPOS = "Anticipos a proveedores"
+NOTA_ANTICIPOS = "Registrados en SAP como anticipo, en cuentas de activo."
 
 ZONA_MEXICO = ZoneInfo("America/Mexico_City")
 SIN_NOMBRE = "(sin nombre en la maestra)"
@@ -232,10 +217,11 @@ def verificar_frescura(client) -> datetime:
 
 def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, Any]]:
     """
-    Saldos deudores por sociedad, tipo, cuenta y proveedor, con el nombre del proveedor.
+    Anticipos formales (UMSKZ = 'A') por sociedad, cuenta y proveedor, con su nombre.
 
-    UMSKZ esta en el GROUP BY, no solo en el WHERE: es lo que garantiza que un anticipo
-    formal ('A') nunca se sume con su propia solicitud ('F'), que comparte cuenta.
+    Se filtra UMSKZ = 'A' ya en el WHERE de la CTE, asi que las filas 'F' (solicitud de
+    anticipo, comparte cuenta con 'A') ni entran en el calculo: no hace falta UMSKZ en
+    el GROUP BY para separarlas.
     """
     from google.cloud import bigquery
 
@@ -243,7 +229,6 @@ def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, A
         WITH saldos AS (
           SELECT
             BUKRS AS sociedad,
-            IFNULL(UMSKZ, '') AS umskz,
             IFNULL(HKONT, '') AS cuenta,
             LTRIM(LIFNR, '0') AS proveedor,
             ROUND(SUM(
@@ -253,9 +238,9 @@ def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, A
               END
             ), 2) AS saldo_neto
           FROM `{ORIGEN_BSIK}`
-          WHERE IFNULL(UMSKZ, '') IN ('', 'A')
+          WHERE UMSKZ = 'A'
             AND BUKRS IN UNNEST(@sociedades)
-          GROUP BY sociedad, umskz, cuenta, proveedor
+          GROUP BY sociedad, cuenta, proveedor
         ),
         proveedores AS (
           SELECT
@@ -267,24 +252,23 @@ def consultar_anticipos(client, sociedades: tuple[str, ...]) -> list[dict[str, A
         )
         SELECT
           s.sociedad,
-          IF(s.umskz = 'A', @tipo_anticipo, @tipo_saldo_deudor) AS tipo,
+          @tipo_anticipo AS tipo,
           s.cuenta,
           s.proveedor,
           IFNULL(p.razon_social, @sin_nombre) AS nombre_proveedor,
           s.saldo_neto
         FROM saldos s
         LEFT JOIN proveedores p USING (proveedor)
-        -- El negativo solo entra para los anticipos formales (umskz='A'): el cliente
-        -- los quiere ver igual. Para el resto, negativo es una factura pendiente de
-        -- pago, no un anticipo, y se descarta.
-        WHERE s.saldo_neto > 0 or (s.umskz = 'A' AND s.saldo_neto < 0)
-        ORDER BY s.sociedad, tipo, s.saldo_neto DESC
+        -- Entran positivos y negativos: el cliente quiere ver tambien los anticipos
+        -- formales que salen en negativo. Solo se excluye el saldo exactamente en
+        -- cero, que no es nada que reportar.
+        WHERE s.saldo_neto != 0
+        ORDER BY s.sociedad, s.saldo_neto DESC
     """
     configuracion = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ArrayQueryParameter("sociedades", "STRING", list(sociedades)),
             bigquery.ScalarQueryParameter("tipo_anticipo", "STRING", TIPO_ANTICIPO),
-            bigquery.ScalarQueryParameter("tipo_saldo_deudor", "STRING", TIPO_SALDO_DEUDOR),
             bigquery.ScalarQueryParameter("sin_nombre", "STRING", SIN_NOMBRE),
         ]
     )
@@ -361,18 +345,16 @@ def _etiqueta_sociedad(codigo: str, nombres: dict[str, str]) -> str:
 
 def agrupar_por_sociedad(
     filas: list[dict[str, Any]], sociedades: tuple[str, ...]
-) -> dict[str, dict[str, list[dict[str, Any]]]]:
+) -> dict[str, list[dict[str, Any]]]:
     """
-    Una entrada por sociedad pedida, y dentro una por tipo, aunque esten vacias.
+    Una entrada por sociedad pedida, aunque este vacia.
 
     Asi el correo de una sociedad sin nada no es un caso especial: se recorre igual y
     sale con su mensaje de "sin anticipos".
     """
-    agrupado = {
-        sociedad: {clave: [] for clave, _, _ in TIPOS} for sociedad in sociedades
-    }
+    agrupado: dict[str, list[dict[str, Any]]] = {sociedad: [] for sociedad in sociedades}
     for fila in filas:
-        agrupado[fila["sociedad"]][fila["tipo"]].append(fila)
+        agrupado[fila["sociedad"]].append(fila)
     return agrupado
 
 
@@ -629,41 +611,30 @@ def _tabla_detalle(filas: list[dict[str, Any]], etiqueta_total: str) -> str:
 
 def _bloque_sociedad(
     sociedad: str,
-    por_tipo: dict[str, list[dict[str, Any]]],
+    filas: list[dict[str, Any]],
     nombres: dict[str, str],
 ) -> str:
-    """Bloque de una sociedad: una seccion por tipo de anticipo, y el total combinado."""
+    """Bloque de una sociedad: titulo, y la tabla de anticipos si hay alguno."""
     partes = [
         f'<p class="titulo-sociedad" style="font-family:Barlow,\'Segoe UI\',Arial,sans-serif;'
         f'font-size:16px;color:{AZUL};font-weight:800;margin:28px 0 2px;">'
         f"Sociedad {escape(_etiqueta_sociedad(sociedad, nombres))}</p>"
     ]
 
-    con_datos = [(clave, etiqueta, nota) for clave, etiqueta, nota in TIPOS if por_tipo[clave]]
-
-    if not con_datos:
+    if not filas:
         partes.append(
             '<p style="font-size:13px;color:#4b5563;margin:4px 0 8px;">'
             "Sin anticipos pendientes.</p>"
         )
         return "".join(partes)
 
-    for clave, etiqueta, nota in con_datos:
-        partes.append(
-            f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
-            f'margin:16px 0 2px;">{escape(etiqueta)}</p>'
-            f'<p class="titulo-seccion" style="font-size:11px;color:#6b7280;margin:0 0 8px;">'
-            f"{escape(nota)}</p>"
-        )
-        partes.append(_tabla_detalle(por_tipo[clave], f"Total {etiqueta.lower()}"))
-
-    # El total combinado solo aporta si hay dos secciones que sumar.
-    if len(con_datos) > 1:
-        combinado = sum((_total(por_tipo[clave]) for clave, _, _ in con_datos), Decimal("0"))
-        partes.append(
-            f'<p style="font-size:13px;color:{AZUL};font-weight:800;margin:12px 0 0;'
-            f'text-align:right;">Total {escape(sociedad)}: {escape(_importe(combinado))}</p>'
-        )
+    partes.append(
+        f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
+        f'margin:16px 0 2px;">{escape(TITULO_ANTICIPOS)}</p>'
+        f'<p class="titulo-seccion" style="font-size:11px;color:#6b7280;margin:0 0 8px;">'
+        f"{escape(NOTA_ANTICIPOS)}</p>"
+    )
+    partes.append(_tabla_detalle(filas, f"Total {TITULO_ANTICIPOS.lower()}"))
 
     return "".join(partes)
 
@@ -683,34 +654,27 @@ def _celda_sociedad(codigo: str, nombres: dict[str, str]) -> str:
 
 
 def _resumen_sociedades(
-    agrupado: dict[str, dict[str, list[dict[str, Any]]]],
+    agrupado: dict[str, list[dict[str, Any]]],
     nombres: dict[str, str],
 ) -> str:
-    """Tabla de totales por sociedad y tipo, solo para el correo global."""
+    """Tabla de totales por sociedad, solo para el correo global."""
     filas = []
-    totales_generales = {clave: Decimal("0") for clave, _, _ in TIPOS}
+    gran_total = Decimal("0")
 
-    for sociedad, por_tipo in agrupado.items():
-        totales = {clave: _total(por_tipo[clave]) for clave, _, _ in TIPOS}
-        for clave, valor in totales.items():
-            totales_generales[clave] += valor
-        combinado = sum(totales.values(), Decimal("0"))
+    for sociedad, partidas in agrupado.items():
+        total = _total(partidas)
+        gran_total += total
         filas.append(
             "<tr>"
             + _celda_sociedad(sociedad, nombres)
-            + _celda(escape(_importe(totales[TIPO_ANTICIPO])), derecha=True)
-            + _celda(escape(_importe(totales[TIPO_SALDO_DEUDOR])), derecha=True)
-            + _celda(escape(_importe(combinado)), derecha=True, fuerte=True)
+            + _celda(escape(_importe(total)), derecha=True, fuerte=True)
             + "</tr>"
         )
 
-    gran_total = sum(totales_generales.values(), Decimal("0"))
     encabezado = _encabezado(
         [
             ("Sociedad", False),
-            ("Anticipos a proveedores", True),
-            ("Saldos deudores", True),
-            ("Total", True),
+            (TITULO_ANTICIPOS, True),
         ]
     )
     return (
@@ -719,7 +683,7 @@ def _resumen_sociedades(
         f'overflow:hidden;margin-bottom:8px;">'
         f"<thead>{encabezado}</thead>"
         f"<tbody>{''.join(filas)}"
-        f"{_fila_total('Total general', gran_total, 3)}</tbody></table>"
+        f"{_fila_total('Total general', gran_total, 1)}</tbody></table>"
     )
 
 
@@ -801,10 +765,8 @@ def construir_html(
         <tr><td style="padding:8px 28px 28px;">{contenido}</td></tr>
         <tr><td style="padding:0 28px 24px;">
           <p style="font-size:11px;color:#6b7280;margin:0;line-height:1.6;">
-            Se reportan dos conceptos. <b>Anticipos a proveedores</b>: registrados en SAP
-            como anticipo, en cuentas de activo. <b>Saldos deudores en cuentas de
-            proveedor</b>: importe pagado por encima de lo que se debia, sin indicador
-            especial. Importes en pesos mexicanos.
+            <b>Anticipos a proveedores</b>: registrados en SAP como anticipo, en cuentas
+            de activo. Importes en pesos mexicanos.
           </p>
         </td></tr>
       </table>
@@ -930,7 +892,7 @@ def enviar_correo(
 
 
 def enviar_reportes(
-    agrupado: dict[str, dict[str, list[dict[str, Any]]]],
+    agrupado: dict[str, list[dict[str, Any]]],
     fecha_reporte,
     globales: list[str],
     por_sociedad: dict[str, list[str]],
@@ -961,8 +923,8 @@ def enviar_reportes(
     # Un unico correo con todas las sociedades para quien las sigue todas.
     if globales:
         bloques = "".join(
-            _bloque_sociedad(sociedad, por_tipo, nombres)
-            for sociedad, por_tipo in agrupado.items()
+            _bloque_sociedad(sociedad, filas_sociedad, nombres)
+            for sociedad, filas_sociedad in agrupado.items()
         )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
@@ -983,7 +945,7 @@ def enviar_reportes(
         logging.warning("Sin destinatarios globales: no se envia el correo consolidado")
 
     # Un correo por sociedad.
-    for sociedad, por_tipo in agrupado.items():
+    for sociedad, filas_sociedad in agrupado.items():
         destinatarios = por_sociedad.get(sociedad, [])
         if not destinatarios:
             logging.warning(
@@ -994,7 +956,7 @@ def enviar_reportes(
         html, pdf, nombre_pdf = preparar(
             f"Sociedad {_etiqueta_sociedad(sociedad, nombres)}. "
             f"Fecha de consulta {fecha_texto}.",
-            _bloque_sociedad(sociedad, por_tipo, nombres),
+            _bloque_sociedad(sociedad, filas_sociedad, nombres),
             # El nombre del fichero se queda con el codigo: corto y sin caracteres raros.
             f"anticipos_{sociedad}",
         )
@@ -1031,10 +993,9 @@ def main() -> None:
     nombres = consultar_nombres_sociedad(client, sociedades)
     logging.info("Nombres de sociedad resueltos: %s de %s", len(nombres), len(sociedades))
 
-    for clave, etiqueta, _ in TIPOS:
-        del_tipo = [f for f in filas if f["tipo"] == clave]
-        logging.info("%s: %s filas por %s", etiqueta, len(del_tipo), _importe(_total(del_tipo)))
-    logging.info("Total: %s filas por %s", len(filas), _importe(_total(filas)))
+    logging.info(
+        "%s: %s filas por %s", TITULO_ANTICIPOS, len(filas), _importe(_total(filas))
+    )
 
     ahora = datetime.now(ZONA_MEXICO)
     fecha_reporte = ahora.date()

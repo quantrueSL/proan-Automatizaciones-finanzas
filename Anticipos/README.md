@@ -8,9 +8,8 @@ reportePartidasPendientes > Reporte anticipos`).
 ## Que es un anticipo
 
 Un anticipo es dinero entregado a un proveedor **antes** de que exista factura que lo
-justifique, o pagado **de mas**. Su cuenta queda con **saldo deudor**: es el proveedor
-quien debe, en forma de mercancia o servicio pendiente de entregar. Contablemente es un
-**activo**.
+justifique. Su cuenta queda con **saldo deudor**: es el proveedor quien debe, en forma de
+mercancia o servicio pendiente de entregar. Contablemente es un **activo**.
 
 El saldo de un proveedor se calcula con el indicador de debe o haber, `SHKZG`:
 
@@ -20,32 +19,28 @@ saldo = SUMA( +DMBTR si SHKZG='S' (debe) ,  -DMBTR si SHKZG='H' (haber) )
 
 `DMBTR` va siempre en **moneda local**, pesos mexicanos, aunque el documento original
 estuviera en dolares o euros. Por eso se pueden sumar apuntes de distintas divisas sin
-convertir nada. **Si el saldo sale positivo, hay anticipo.** Para los anticipos formales
-(`UMSKZ = 'A'`) tambien se incluyen los que salen con saldo negativo: el cliente quiere
-verlos igual, aunque no representen dinero pendiente de aplicar.
+convertir nada. Entran tanto los saldos positivos como los negativos: el cliente quiere
+ver tambien los anticipos que salen en negativo, aunque no representen dinero pendiente
+de aplicar. Solo se excluye un saldo exactamente en cero.
 
-## Los cuatro valores de `UMSKZ`
+## Solo entran los anticipos formales (`UMSKZ = 'A'`)
 
 `UMSKZ` es el indicador de cuenta especial de SAP, y es lo que distingue conceptos que no
 se pueden mezclar:
 
 | `UMSKZ` | Que es | Cuentas | En el reporte |
 |---|---|---|---|
-| *(vacio)* | **Partida normal de proveedor.** Facturas y pagos corrientes. Su saldo neto es deudor solo si se ha pagado de mas | **Pasivo**: `20101xx`, `2020xxx`, `2111xx` | **Si**, como «Saldos deudores en cuentas de proveedor» |
+| *(vacio)* | **Partida normal de proveedor.** Facturas y pagos corrientes. Su saldo neto es deudor solo si se ha pagado de mas | **Pasivo**: `20101xx`, `2020xxx`, `2111xx` | **No** — se quito el 2026-08-27 a peticion del usuario (antes salia como «Saldos deudores en cuentas de proveedor») |
 | `A` | **Anticipo formal.** Registrado en SAP declarandolo como anticipo | **Activo**: `10801xx`, `0000140110` | **Si**, como «Anticipos a proveedores», incluidos los que salen con saldo negativo |
 | `F` | **Solicitud de anticipo.** Apunte estadistico para planificar pagos. No representa dinero movido | Las mismas que `A` | **No** |
 | `H` | Otros indicadores especiales | `0000140810` | **No** |
 
-Las dos que entran son conceptos distintos y van en **secciones separadas del correo**,
-cada una con su total:
-
-- Los **`'A'`** son anticipos declarados: alguien los registro como tal, en cuentas de
-  activo de anticipos a proveedores.
-- Los **saldos deudores con `UMSKZ` vacio** son anticipos de hecho: nadie los declaro,
-  simplemente se pago mas de lo debido y una cuenta de pasivo quedo en positivo. 
-
 Los **`'F'`** quedan fuera porque son una anotacion, no un saldo: sumarlos a un `'A'` real
 seria contar el mismo anticipo dos veces.
+
+Hasta 2026-08-27 el reporte tambien incluia los saldos deudores con `UMSKZ` vacio
+(anticipos de hecho: nadie los declaro, simplemente se pago mas de lo debido). Se
+quitaron para que el reporte sea solo de los anticipos formales.
 
 ## De donde sale el dato
 
@@ -77,7 +72,6 @@ aplica, el apunte **desaparece** de BSIK: no se marca como cerrado.
 WITH saldos AS (
   SELECT
     BUKRS AS sociedad,
-    IFNULL(UMSKZ, '') AS umskz,
     IFNULL(HKONT, '') AS cuenta,
     LTRIM(LIFNR, '0') AS proveedor,
     ROUND(SUM(
@@ -86,9 +80,9 @@ WITH saldos AS (
       END
     ), 2) AS saldo_neto
   FROM `proan-quantrue.D00_SANDBOX.bsik_real_time`
-  WHERE IFNULL(UMSKZ, '') IN ('', 'A')
+  WHERE UMSKZ = 'A'
     AND BUKRS IN UNNEST(@sociedades)
-  GROUP BY sociedad, umskz, cuenta, proveedor
+  GROUP BY sociedad, cuenta, proveedor
 ),
 proveedores AS (
   SELECT
@@ -99,24 +93,20 @@ proveedores AS (
   GROUP BY proveedor
 )
 SELECT s.sociedad,
-       IF(s.umskz = 'A', 'anticipo', 'saldo_deudor') AS tipo,
+       'anticipo' AS tipo,
        s.cuenta, s.proveedor,
        IFNULL(p.razon_social, '(sin nombre en la maestra)') AS nombre_proveedor,
        s.saldo_neto
 FROM saldos s
 LEFT JOIN proveedores p USING (proveedor)
-WHERE s.saldo_neto > 0 OR (s.umskz = 'A' AND s.saldo_neto < 0)
-ORDER BY s.sociedad, tipo, s.saldo_neto DESC
+WHERE s.saldo_neto != 0
+ORDER BY s.sociedad, s.saldo_neto DESC
 ```
 
-Cinco detalles que no son opcionales:
+Cuatro detalles que no son opcionales:
 
-- **Los anticipos formales (`UMSKZ = 'A'`) entran tambien en negativo.** Para el resto
-  (`UMSKZ` vacio) solo cuenta el saldo positivo, que es lo que los hace un anticipo de
-  hecho. El cliente pidio ver tambien los `'A'` en negativo, que antes se descartaban.
-
-- **`UMSKZ` va en el `GROUP BY`, no solo en el `WHERE`.** `'A'` y `'F'` comparten cuenta de
-  mayor, asi que agrupar solo por cuenta mezclaria un anticipo con su propia solicitud.
+- **Entran positivos y negativos.** Solo se excluye un saldo exactamente en cero, que no
+  es nada que reportar. El cliente quiere ver tambien los anticipos que salen en negativo.
 - **`CAST(DMBTR AS NUMERIC)`.** En el espejo `DMBTR` es `FLOAT`, y sumar dinero en coma
   flotante arrastra error. `NUMERIC` es aritmetica decimal exacta.
 - **`dm_vendors` se deduplica antes de cruzar.** Tiene una fila por direccion, no por
@@ -125,6 +115,11 @@ Cinco detalles que no son opcionales:
 - **No se filtra por cuenta de mayor.** El anticipo lo define el signo del saldo. Las
   cuentas que aparezcan en un reporte concreto son las que tenian saldo ese dia en esa
   sociedad, no una lista cerrada. La cuenta se muestra como columna informativa.
+
+**`UMSKZ` ya no hace falta en el `GROUP BY`.** Hasta 2026-08-27 el filtro admitia `UMSKZ`
+vacio o `'A'`, y agrupar solo por cuenta habria mezclado un anticipo formal con su propia
+solicitud (`'F'`, que comparte cuenta con `'A'`). Al filtrar ya `UMSKZ = 'A'` en el propio
+`WHERE`, las filas `'F'` ni entran en el calculo.
 
 ## Control de frescura
 
@@ -146,18 +141,16 @@ PAN DBC ROMM PRA MPE MAL HEGP ISE PIN SAP ABP AME CCP PAL PAT BAG
 En `bsik_real_time` hay 23; quedan fuera a proposito `ADE`, `FAG`, `FEF`, `GSI`, `PFO`,
 `SCO` y `SCO1`.
 
-Una sociedad sin anticipos de ninguno de los dos tipos **recibe su correo igualmente**, con
-un «Sin anticipos pendientes»: el silencio no se distingue de un proceso roto.
+Una sociedad sin anticipos **recibe su correo igualmente**, con un «Sin anticipos
+pendientes»: el silencio no se distingue de un proceso roto.
 
-## Los saldos negativos casi nunca son de este reporte
+## Las facturas pendientes de pago no son de este reporte
 
-Al separar por signo, el lado negativo resulta ser dos o tres ordenes de magnitud mayor y
-con muchas mas filas: son las **facturas pendientes de pago**. Corresponden a la
-automatizacion `Partidas abiertas por compensar`, que va por otro camino
-(`bsis_real_time`, clase `ZR`, cuentas terminadas en `I`).
-
-La unica excepcion es `UMSKZ = 'A'`: ahi el negativo si entra, porque el cliente quiere
-verlo junto con el resto de anticipos formales.
+Las partidas de proveedor con saldo neto negativo y `UMSKZ` vacio son **facturas
+pendientes de pago**, no anticipos. No se llegan a consultar: el filtro de este reporte
+es `UMSKZ = 'A'`, y esas partidas tienen `UMSKZ` vacio. Corresponden a la automatizacion
+`Partidas abiertas por compensar`, que va por otro camino (`bsis_real_time`, todas las
+clases de documento, cuentas terminadas en `I`).
 
 ## Tabla de salida
 
@@ -168,11 +161,11 @@ verlo junto con el resto de anticipos formales.
 |---|---|---|
 | `fecha_reporte` | DATE | Fecha de Mexico de la ejecucion |
 | `sociedad` | STRING | `BUKRS` |
-| `tipo` | STRING | `anticipo` (`UMSKZ = 'A'`) o `saldo_deudor` (`UMSKZ` vacio) |
+| `tipo` | STRING | Siempre `anticipo`. Se conserva por continuidad historica: las filas anteriores a 2026-08-27 tambien tenian `saldo_deudor` |
 | `cuenta` | STRING | `HKONT`. Cadena vacia si el apunte no la trae |
 | `proveedor` | STRING | `LIFNR` sin ceros de relleno |
 | `nombre_proveedor` | STRING | `razon_social` de `dm_vendors` |
-| `saldo_neto` | NUMERIC | Positivo salvo en anticipos formales (`tipo = 'anticipo'`), que tambien pueden salir negativos |
+| `saldo_neto` | NUMERIC | Positivo o negativo |
 | `actualizado_en` | DATETIME | Hora de Mexico de la ejecucion |
 
 **Es la unica historia que existe.** BSIK solo tiene partidas abiertas, el espejo se
@@ -203,16 +196,15 @@ su correo porque una tabla de referencia no responda. Si el maestro responde per
 un codigo concreto, ese aparece como «(sin nombre en la maestra)», igual que se hace con los
 proveedores.
 
-Cada sociedad se presenta con sus dos secciones — **Anticipos a proveedores** y **Saldos
-deudores en cuentas de proveedor** — cada una con detalle de cuenta, proveedor, nombre y
-saldo, ordenado de mayor a menor, y su total. Debajo, el total combinado, que solo aparece
-si hay las dos secciones.
+Cada sociedad se presenta con el detalle de sus anticipos — cuenta, proveedor, nombre y
+saldo, ordenado de mayor a menor — y su total. Si no tiene ninguno, sale un «Sin anticipos
+pendientes» en su lugar.
 
 Se envian dos tipos de correo:
 
-- **Uno por sociedad**, con las dos secciones de esa sociedad.
-- **Uno consolidado** con las 16, que empieza con un resumen (sociedad, total de anticipos,
-  total de saldos deudores, total combinado y total general) y sigue con el detalle.
+- **Uno por sociedad**, con el detalle de esa sociedad.
+- **Uno consolidado** con las 16, que empieza con un resumen (sociedad y total) y sigue
+  con el detalle.
 
 ### El PDF adjunto
 
@@ -327,10 +319,10 @@ La *service account* del Job necesita leer `D00_SANDBOX` y `D20_DIMENSION`, escr
 
 ## Pendiente
 
-- **Avisar a contabilidad de que el reporte incluye los `UMSKZ = 'A'`**, que el manual no
-  mostraba. El importe total es un orden de magnitud mayor que el de siempre, y conviene
-  que lo sepan antes de encontrarselo. Las dos secciones estan separadas para que se pueda
-  comparar con lo que llegaba antes.
+- **Avisar a quien reciba el correo de que ya no incluye los saldos deudores** (`UMSKZ`
+  vacio), que se quitaron el 2026-08-27 a peticion del usuario. El reporte ahora es solo
+  de anticipos formales (`UMSKZ = 'A'`), y el importe total va a bajar respecto a lo que
+  llegaba antes.
 - **Parchear la app de Mailing-lists** para que gestione `globales` y `por_sociedad`.
   Mientras no lo haga: **no abrir la lista `anticipos` en la interfaz y darle a Guardar**,
   porque `save_list` escribe el documento completo con `set()` sin `merge` y borraria los
