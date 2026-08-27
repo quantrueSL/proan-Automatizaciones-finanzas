@@ -57,14 +57,30 @@ CUENTAS = {
     "Mermas": ["0005010628"],
     "Variación de Precios": ["0005010632"],
     "Gastos no Deducibles": ["0005020000"],
+    # Agregada 2026-08-27 a pedido del usuario ("cuenta de pasivo temporal... creo que el
+    # número es 209000"). Confirmada en el catálogo D00_SANDBOX.proan_SKAT_20260804: plan
+    # PROA, SAKNR 0002090000, TXT50 "Pasivo Temporal" -- coincide exacto con lo pedido (no
+    # confundir con 0002090001 "IEPS No Desglosado", vecina en el mismo prefijo). Es
+    # justamente la cuenta del prototipo "Reporte Pasivo Temporal" que ya se menciona como
+    # referencia del formato único más arriba -- por eso "de la misma forma" es Plantilla A
+    # (banner + KPIs + gráfico + tabla), igual que Gastos no Deducibles, sin ABS() ni
+    # CUENTAS_SOLO_DEBE (neto Debe-Haber directo, dígito 2 = Pasivo, se valida igual que las
+    # demás de este tipo). Datos reales en sap_faglflext_rt confirmados antes de activarla
+    # (17 sociedades con saldo material en 2026, todas en negativo -- convención SAP estándar
+    # para Pasivo).
+    "Pasivo Temporal": ["0002090000"],
 }
 
 # Solo se generan las cuentas listadas aquí; las demás se activan a medida que se validen
 # sus queries. Mermas (0005010628) se activó como "Plantilla A" (cuenta única, igual
 # formato que Gastos no Deducibles). Igual que Gastos no Deducibles: dígito 5 (egresos),
 # sin ABS(), tabla viva (mismo criterio que el resto -- ver nota de snapshot pendiente
-# más abajo).
-CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Mermas"]
+# más abajo). Pasivo Temporal se insertó ANTES de "Mermas" (no al final de la lista):
+# generar_reporte.py/enviar_reporte.py agregan la sección "Mermas ratio" inmediatamente
+# después de terminar este bucle, así que Mermas tiene que seguir siendo la ÚLTIMA entrada
+# aquí para que sus dos formas (importe/razón) queden en páginas contiguas -- si se agrega
+# otra cuenta a este bucle en el futuro, ponerla antes de "Mermas", nunca después.
+CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Pasivo Temporal", "Mermas"]
 
 # --- Dos formas de reportar la misma cuenta: importe vs. razón ----------------------
 # Mermas y Descuentos/Bonificaciones se emiten AMBAS en las dos formas, en secciones
@@ -306,8 +322,8 @@ EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
 EMAIL_CUERPO_TEMPLATE = (
     "Hola Luis Enrique,\n\n"
     "Adjunto el reporte diario de cuentas contables PROAN correspondiente al {fecha}, "
-    "con las secciones de Gastos no Deducibles, Mermas, Descuentos y Bonificaciones y "
-    "Variación de Precios.\n\n"
+    "con las secciones de Gastos no Deducibles, Pasivo Temporal, Mermas, Descuentos y "
+    "Bonificaciones y Variación de Precios.\n\n"
     "Mermas y Descuentos van cada una en DOS formas, en secciones seguidas: el importe de "
     "la cuenta por sociedad, y la misma cuenta como porcentaje sobre su base (Mermas sobre "
     "el Costo Total, Descuentos sobre los Ingresos). Están las dos porque no está definido "

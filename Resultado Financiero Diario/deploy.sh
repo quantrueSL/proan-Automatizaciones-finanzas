@@ -12,7 +12,10 @@ REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 # 4 cuentas contables) -- no comparten Dockerfile ni imagen. Desde el 2026-08-20 SI comparten
 # horario: los dos corren a las 14:00 L-S por peticion del usuario, para que ambos reportes
 # lleguen a la misma hora. (Antes: este a las 07:45 y el otro a las 07:15.)
-SCHEDULER_CRON="0 14 * * 1-6"
+# Cambiado de nuevo 2026-08-27 a peticion del usuario: 17:00 L-S (sigue a la vez que
+# reporte-cuentas-diario). Ver la nota mas larga en "Reportes diarios contables/deploy.sh"
+# sobre por que este valor se desincronizo brevemente del Scheduler real ese mismo dia.
+SCHEDULER_CRON="0 17 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'

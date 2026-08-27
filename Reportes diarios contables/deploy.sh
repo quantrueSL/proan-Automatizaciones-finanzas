@@ -12,7 +12,12 @@ REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 # que el Job de Resultado Financiero Diario, para que los dos reportes lleguen juntos.
 # (Antes: 07:15, antes de que el equipo
 # entre), para no chocar con Anticipos (10:00) ni Partidas (10:10).
-SCHEDULER_CRON="0 14 * * 1-6"
+# Cambiado de nuevo 2026-08-27 a peticion del usuario: 17:00 de Mexico (sigue L-S, sigue a
+# la vez que Resultado Financiero Diario). Ese dia tambien se detecto que el Scheduler real
+# habia quedado desincronizado de este archivo (alguien corrio deploy.sh con una copia vieja
+# del repo y piso el cron de las 14:00 con el antiguo 07:15) -- si se vuelve a tocar este
+# valor, redesplegar cuanto antes para que el repo y GCP no diverjan.
+SCHEDULER_CRON="0 17 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
