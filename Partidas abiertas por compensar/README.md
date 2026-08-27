@@ -230,20 +230,24 @@ cuenta con mas egresos que ingresos da negativo. Es correcto, no un error.
 
 Se envian dos tipos de correo:
 
-- **Uno por sociedad**, con sus cuentas.
-- **Uno consolidado** con las 16, que empieza con un resumen —partidas, cuentas, dias de la
-  mas antigua e importe neto por sociedad— y sigue con el detalle.
+- **Uno por sociedad**, con sus cuentas en el propio cuerpo del correo.
+- **Uno consolidado** con las 16. **El cuerpo de este correo lleva solo el resumen**
+  —partidas, cuentas, dias de la mas antigua e importe neto por sociedad— con una nota de
+  que el detalle esta en el PDF adjunto, no las 16 sociedades una detras de otra en el
+  propio correo.
 
 ### El PDF adjunto
 
-Cada correo lleva adjunto el mismo contenido en PDF:
-`partidas_pendientes_DBC_20260730.pdf`, o
+Cada correo lleva adjunto un PDF: `partidas_pendientes_DBC_20260730.pdf`, o
 `partidas_pendientes_todas_las_sociedades_20260730.pdf` para el consolidado. Fecha en
 formato ISO para que al guardarlos en una carpeta se ordenen solos.
 
-**Se genera con WeasyPrint a partir del MISMO HTML del correo.** Eso es lo importante del
-diseno: hay una sola definicion del layout. Si el PDF se construyera aparte, en unos meses
-uno de los dos tendria una columna que el otro no.
+**Se genera con WeasyPrint a partir del MISMO HTML que se usaria para el correo.** Eso es
+lo importante del diseno: hay una sola definicion del layout para cada bloque (resumen,
+seccion de sociedad, tabla de cuenta), asi que un cambio ahi no puede dejar el PDF con una
+columna que el correo no tenga o al reves. La diferencia entre correo y PDF esta solo en
+**cuales de esos bloques se incluyen**: en el consolidado, el PDF junta el resumen y los
+16 bloques completos; el cuerpo del correo se queda solo con el resumen.
 
 Encima de ese HTML se aplica una hoja de estilos que solo existe para el PDF
 (`_estilos_pdf`): margenes de pagina, numeracion, se desmonta el marco de tarjeta —que en

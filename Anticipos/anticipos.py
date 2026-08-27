@@ -84,11 +84,24 @@ tabla no hay forma de saber que un anticipo existio ni cuanto tiempo estuvo abie
 La escritura usa el decorador de particion con WRITE_TRUNCATE, asi que reejecutar el
 proceso el mismo dia reemplaza la foto del dia entera, sin duplicar ni dejar restos.
 
-Esta misma tabla es tambien la fuente del "Total ayer" que aparece en el resumen del
-correo consolidado y en el bloque de cada sociedad (consolidado e individual): se relee
+Esta misma tabla es tambien la fuente del "Total ayer" que aparece en el resumen y en
+cada bloque de sociedad (correo por sociedad, y dentro del PDF del consolidado): se relee
 (fecha_reporte = ayer) para comparar contra el total de hoy. Una sociedad sin fila para
 ayer se trata como que no tenia anticipos ese dia (0), no como un error. Si la relectura
 entera falla, la columna sale con "-" en vez de un 0 enganoso.
+
+Correo y PDF
+------------
+Cada bloque (resumen, seccion de sociedad, tabla de detalle) tiene una sola definicion
+de HTML, compartida entre correo y PDF: un cambio ahi nunca puede dejar al uno con una
+columna que al otro le falte. Lo que si difiere es que bloques entran en cada uno:
+
+- Correo por sociedad: el bloque de esa sociedad, igual en el cuerpo del correo y en el
+  PDF adjunto.
+- Correo consolidado: el cuerpo del correo lleva SOLO el resumen (con una nota de que el
+  detalle esta en el adjunto). El PDF adjunto lleva el resumen y los 16 bloques
+  completos. Se separo asi para no mandar un correo kilometrico a quien sigue las 16
+  sociedades a la vez -- el PDF sigue teniendo todo, para quien lo necesite.
 
 Destinatarios
 -------------
@@ -983,12 +996,20 @@ def enviar_reportes(
     sufijo_fichero = fecha_reporte.strftime("%Y%m%d")
     resultados = []
 
-    def preparar(titulo_sub: str, contenido: str, nombre: str) -> tuple[str, bytes | None, str]:
+    def preparar(
+        titulo_sub: str, contenido: str, nombre: str, *, contenido_html: str | None = None
+    ) -> tuple[str, bytes | None, str]:
         """
         Devuelve el HTML del correo, el PDF y su nombre de fichero.
 
         El PDF se genera ANTES de construir el HTML del correo, no despues, porque si
         falla hay que poder avisarlo dentro del propio correo.
+
+        `contenido_html`, si se pasa, sustituye a `contenido` solo en el cuerpo del
+        correo: el PDF sigue saliendo de `contenido`. Se usa en el consolidado, donde el
+        correo lleva solo el resumen y el PDF lleva el detalle completo (ver
+        enviar_reportes). Sin `contenido_html` ambos salen del mismo `contenido`, como en
+        el correo por sociedad.
         """
         pdf = generar_pdf(
             construir_html("Reporte de anticipos", titulo_sub, contenido, para_pdf=True)
@@ -996,21 +1017,29 @@ def enviar_reportes(
         html = construir_html(
             "Reporte de anticipos",
             titulo_sub,
-            contenido,
+            contenido_html if contenido_html is not None else contenido,
             aviso=None if pdf else AVISO_SIN_PDF,
         )
         return html, pdf, f"{nombre}_{sufijo_fichero}.pdf"
 
-    # Un unico correo con todas las sociedades para quien las sigue todas.
+    # Un unico correo con todas las sociedades para quien las sigue todas. El cuerpo del
+    # correo lleva solo el resumen; el detalle completo por sociedad va unicamente en el
+    # PDF adjunto, para no mandar un correo kilometrico a quien sigue las 16 a la vez.
     if globales:
+        resumen = _resumen_sociedades(agrupado, nombres, totales_ayer)
         bloques = "".join(
             _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer)
             for sociedad, filas_sociedad in agrupado.items()
         )
+        nota_detalle = (
+            '<p style="font-size:12px;color:#6b7280;margin:12px 0 0;">'
+            "El detalle por sociedad va en el PDF adjunto.</p>"
+        )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
-            _resumen_sociedades(agrupado, nombres, totales_ayer) + bloques,
+            resumen + bloques,
             "anticipos_todas_las_sociedades",
+            contenido_html=resumen + nota_detalle,
         )
         resultados.append(
             enviar_correo(

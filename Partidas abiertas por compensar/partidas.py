@@ -110,6 +110,19 @@ Documento Firestore lists/partidas_pendientes, con dos bloques:
 Si Firestore no esta disponible se cae a PARTIDAS_EMAIL_TO y luego a los destinatarios
 por defecto, y en ese caso se envia SOLO el correo global: nunca se adivina quien debe
 recibir los datos de una sociedad concreta.
+
+Correo y PDF
+------------
+Cada bloque (resumen, seccion de sociedad, tabla de cuenta) tiene una sola definicion de
+HTML, compartida entre correo y PDF: un cambio ahi nunca puede dejar al uno con una
+columna que al otro le falte. Lo que si difiere es que bloques entran en cada uno:
+
+- Correo por sociedad: el bloque de esa sociedad, igual en el cuerpo del correo y en el
+  PDF adjunto.
+- Correo consolidado: el cuerpo del correo lleva SOLO el resumen (con una nota de que el
+  detalle esta en el adjunto). El PDF adjunto lleva el resumen y los 16 bloques
+  completos. Se separo asi para no mandar un correo kilometrico a quien sigue las 16
+  sociedades a la vez -- el PDF sigue teniendo todo, para quien lo necesite.
 """
 
 from __future__ import annotations
@@ -967,28 +980,48 @@ def enviar_reportes(
     titulo = "Partidas pendientes de compensar"
     resultados = []
 
-    def preparar(titulo_sub: str, contenido: str, nombre: str) -> tuple[str, bytes | None, str]:
+    def preparar(
+        titulo_sub: str, contenido: str, nombre: str, *, contenido_html: str | None = None
+    ) -> tuple[str, bytes | None, str]:
         """
         Devuelve el HTML del correo, el PDF y su nombre de fichero.
 
         El PDF se genera ANTES de construir el HTML del correo, no despues, porque si
         falla hay que poder avisarlo dentro del propio correo.
+
+        `contenido_html`, si se pasa, sustituye a `contenido` solo en el cuerpo del
+        correo: el PDF sigue saliendo de `contenido`. Se usa en el consolidado, donde el
+        correo lleva solo el resumen y el PDF lleva el detalle completo (ver
+        enviar_reportes). Sin `contenido_html` ambos salen del mismo `contenido`, como en
+        el correo por sociedad.
         """
         pdf = generar_pdf(construir_html(titulo, titulo_sub, contenido, para_pdf=True))
         html = construir_html(
-            titulo, titulo_sub, contenido, aviso=None if pdf else AVISO_SIN_PDF
+            titulo,
+            titulo_sub,
+            contenido_html if contenido_html is not None else contenido,
+            aviso=None if pdf else AVISO_SIN_PDF,
         )
         return html, pdf, f"{nombre}_{sufijo_fichero}.pdf"
 
+    # El cuerpo del correo lleva solo el resumen; el detalle completo por sociedad va
+    # unicamente en el PDF adjunto, para no mandar un correo kilometrico a quien sigue
+    # las 16 a la vez.
     if globales:
+        resumen = _resumen_sociedades(agrupado, nombres)
         bloques = "".join(
             _bloque_sociedad(sociedad, cuentas, nombres)
             for sociedad, cuentas in agrupado.items()
         )
+        nota_detalle = (
+            '<p style="font-size:12px;color:#6b7280;margin:12px 0 0;">'
+            "El detalle por sociedad va en el PDF adjunto.</p>"
+        )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
-            _resumen_sociedades(agrupado, nombres) + bloques,
+            resumen + bloques,
             "partidas_pendientes_todas_las_sociedades",
+            contenido_html=resumen + nota_detalle,
         )
         resultados.append(
             enviar_correo(

@@ -200,7 +200,7 @@ su correo porque una tabla de referencia no responda. Si el maestro responde per
 un codigo concreto, ese aparece como «(sin nombre en la maestra)», igual que se hace con los
 proveedores.
 
-Cada sociedad se presenta con el detalle de sus anticipos — cuenta, proveedor, nombre y
+Cada bloque de sociedad presenta el detalle de sus anticipos — cuenta, proveedor, nombre y
 saldo, ordenado de mayor a menor —, su total, y el **total de ayer** de esa sociedad. Si
 no tiene ningun anticipo hoy, sale un «Sin anticipos pendientes» seguido igualmente del
 total de ayer: que hoy este vacio y ayer no lo estuviera es justo el cambio que se quiere
@@ -208,10 +208,14 @@ ver de un vistazo.
 
 Se envian dos tipos de correo:
 
-- **Uno por sociedad**, con el detalle de esa sociedad y su total de ayer.
-- **Uno consolidado** con las 16, que empieza con un resumen (sociedad, total de hoy y
-  total de ayer) y sigue con el detalle de cada una, cada bloque con su propio total de
-  ayer otra vez.
+- **Uno por sociedad**, con el bloque de detalle de esa sociedad (y su total de ayer) en
+  el propio cuerpo del correo.
+- **Uno consolidado** con las 16. **El cuerpo de este correo lleva solo el resumen**
+  (sociedad, total de hoy y total de ayer) con una nota de que el detalle esta en el PDF
+  adjunto — no los 16 bloques uno detras de otro, que harian un correo kilometrico para
+  quien sigue todas las sociedades a la vez. El PDF adjunto si lleva el resumen y las 16
+  bloques completos, exactamente igual que si se mandaran los 16 correos individuales
+  seguidos.
 
 **«Total ayer» esta a nivel de sociedad, no de linea**: comparar linea a linea exigiria
 cruzar por proveedor y cuenta entre dos dias, y como los anticipos aparecen y se resuelven
@@ -226,13 +230,17 @@ no deja de ser el reporte de hoy.
 
 ### El PDF adjunto
 
-Cada correo lleva adjunto el mismo contenido en PDF: `anticipos_PAL_20260730.pdf`, o
+Cada correo lleva adjunto un PDF: `anticipos_PAL_20260730.pdf`, o
 `anticipos_todas_las_sociedades_20260730.pdf` para el consolidado. Fecha en formato ISO para
 que al guardarlos en una carpeta se ordenen solos.
 
-**Se genera con WeasyPrint a partir del MISMO HTML del correo.** Eso es lo importante del
-diseno: hay una sola definicion del layout. Si el PDF se construyera aparte, en unos meses
-uno de los dos tendria una columna que el otro no.
+**Se genera con WeasyPrint a partir del MISMO HTML que se usaria para el correo.** Eso es
+lo importante del diseno: hay una sola definicion del layout para cada bloque (resumen,
+seccion de sociedad, tabla de detalle), asi que un cambio ahi no puede dejar el PDF con
+una columna que el correo no tenga o al reves. La unica diferencia entre correo y PDF es
+**cuales de esos bloques se incluyen**: en el consolidado, el PDF junta el resumen y los
+16 bloques completos; el cuerpo del correo se queda solo con el resumen, para no mandar un
+correo kilometrico a quien sigue las 16 sociedades a la vez.
 
 Encima de ese HTML se aplica una hoja de estilos que solo existe para el PDF
 (`_estilos_pdf`): margenes de pagina, numeracion, se desmonta el marco de tarjeta —que en
