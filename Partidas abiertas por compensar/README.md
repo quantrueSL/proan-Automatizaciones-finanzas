@@ -243,12 +243,24 @@ Cada correo lleva ademas un grafico de linea con los ultimos **7 dias CON foto**
 no hay particion (el Job corre de lunes a sabado) o un run cualquiera falla, ese dia se
 salta en vez de dibujarse como una caida a cero que no paso.
 
-- **Correo consolidado**: el importe neto total de las 16 sociedades como grafico de
-  cabecera, y debajo una rejilla con un mini-grafico por sociedad — **cada uno a su
-  propia escala**, para que una sociedad con mucho importe y otra con poco se lean
-  igual de bien en vez de que la pequeña salga como una raya plana. Una sociedad sin
-  ninguna partida en toda la ventana no sale en la rejilla.
-- **Correo por sociedad**: la serie de esa sociedad, sin el problema de escala anterior.
+- **Correo consolidado**: el importe neto total de las 16 sociedades como grafico
+  grande de cabecera, y debajo una rejilla con un mini-grafico por sociedad — **cada
+  uno a su propia escala**, para que una sociedad con mucho importe y otra con poco se
+  lean igual de bien en vez de que la pequeña salga como una raya plana. Una sociedad
+  sin ninguna partida en toda la ventana no sale en la rejilla.
+- **Correo por sociedad**: la serie de esa sociedad como grafico grande, sin el
+  problema de escala anterior.
+
+**El grafico grande** (importe neto total del consolidado, o serie del correo por
+sociedad) lleva el eje de fechas debajo de cada punto y, encima o debajo de la propia
+linea, el valor de ese punto en formato abreviado (1.1M, 859.2k): en un correo no se
+puede pasar el raton por encima de un punto para verlo, asi que el dato va escrito, con
+un halo blanco detras para que no se pierda cruzado por la propia linea.
+
+**El mini-grafico de la rejilla no lleva ejes ni etiquetas por punto** —no hay sitio—;
+en su lugar, la cabecera de cada tarjeta muestra el primer y el ultimo valor de la
+ventana, tambien abreviados (ej. `859.2k → 1.1M`), como referencia minima sin necesidad
+de interactividad.
 
 **El eje de cada grafico encuadra el rango real de sus valores, no se fuerza a incluir
 el cero.** La linea punteada de referencia en cero solo aparece si el cero cae dentro de

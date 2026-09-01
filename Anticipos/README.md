@@ -235,14 +235,26 @@ Cada correo lleva ademas un grafico de linea con los ultimos **7 dias CON foto**
 no hay particion (el Job corre de lunes a sabado) o un run cualquiera falla, ese dia se
 salta en vez de dibujarse como una caida a cero que no paso.
 
-- **Correo consolidado**: el total de las 16 sociedades como grafico de cabecera, y
-  debajo una rejilla con un mini-grafico por sociedad — **cada uno a su propia escala**.
-  Es la solucion al problema de fondo: PAN puede andar en cientos de millones y HEGP en
-  cientos de pesos el mismo dia, y un unico grafico con las 16 lineas dejaria a HEGP
-  como una raya plana pegada al cero. Con un panel por sociedad, cada una se lee bien
-  sola. Una sociedad sin ningun anticipo en toda la ventana no sale en la rejilla.
-- **Correo por sociedad**: la serie de esa sociedad, sin el problema anterior —solo hay
-  una escala de por medio.
+- **Correo consolidado**: el total de las 16 sociedades como grafico grande de
+  cabecera, y debajo una rejilla con un mini-grafico por sociedad — **cada uno a su
+  propia escala**. Es la solucion al problema de fondo: PAN puede andar en cientos de
+  millones y HEGP en cientos de pesos el mismo dia, y un unico grafico con las 16
+  lineas dejaria a HEGP como una raya plana pegada al cero. Con un panel por sociedad,
+  cada una se lee bien sola. Una sociedad sin ningun anticipo en toda la ventana no
+  sale en la rejilla.
+- **Correo por sociedad**: la serie de esa sociedad como grafico grande, sin el
+  problema anterior —solo hay una escala de por medio.
+
+**El grafico grande** (total del consolidado, o serie del correo por sociedad) lleva el
+eje de fechas debajo de cada punto y, encima o debajo de la propia linea, el valor de
+ese punto en formato abreviado (1.1M, 859.2k): en un correo no se puede pasar el raton
+por encima de un punto para verlo, asi que el dato va escrito, con un halo blanco detras
+para que no se pierda cruzado por la propia linea.
+
+**El mini-grafico de la rejilla no lleva ejes ni etiquetas por punto** —no hay sitio—;
+en su lugar, la cabecera de cada tarjeta muestra el primer y el ultimo valor de la
+ventana, tambien abreviados (ej. `859.2k → 1.1M`), como referencia minima sin necesidad
+de interactividad.
 
 **El eje de cada grafico encuadra el rango real de sus valores, no se fuerza a incluir
 el cero.** Una serie que se mueve entre 990M y 1040M tiene que verse como una linea que

@@ -677,6 +677,19 @@ def _importe(valor: Decimal) -> str:
     return f"{valor:,.2f}"
 
 
+def _importe_corto(valor: Decimal) -> str:
+    """Version abreviada de un importe para el grafico de evolucion: 1.1M, 859.2k, 320."""
+    signo = "-" if valor < 0 else ""
+    v = abs(float(valor))
+    if v >= 1_000_000:
+        texto = f"{v / 1_000_000:.1f}M"
+    elif v >= 1_000:
+        texto = f"{v / 1_000:.1f}k"
+    else:
+        texto = f"{v:,.0f}"
+    return f"{signo}{texto}"
+
+
 def _celda(contenido: str, *, derecha: bool = False, fuerte: bool = False) -> str:
     alineacion = "right" if derecha else "left"
     peso = "700" if fuerte else "400"
@@ -850,10 +863,18 @@ def _resumen_sociedades(
     )
 
 
-def _grafico_evolucion_png(valores: list[Decimal], *, ancho: int, alto: int, mini: bool) -> bytes:
+def _grafico_evolucion_png(
+    fechas: list[Any], valores: list[Decimal], *, ancho: int, alto: int, mini: bool
+) -> bytes:
     """
-    PNG de linea + area con la evolucion (sin ejes, sin fechas: esas van en el HTML de
-    alrededor, como texto normal en vez de dentro de la imagen).
+    PNG de linea + area con la evolucion.
+
+    El mini-grafico (mini=True, en la rejilla por sociedad) sigue sin ejes ni etiquetas
+    de punto: ahi el numero de referencia va en la cabecera de la tarjeta (ver
+    _grid_evolucion), no hay sitio para mas. El grafico grande (mini=False: el total del
+    consolidado y la serie del correo por sociedad) SI lleva eje de fechas y el valor de
+    cada punto en formato abreviado (1.1M, 859.2k): en el correo no se puede pasar el
+    raton por encima para verlo, asi que el dato va escrito.
 
     Se genera como imagen, no como SVG inline, para que se vea igual en el cuerpo del
     correo y en el PDF: el SVG inline no es fiable en todos los clientes de correo
@@ -878,9 +899,11 @@ def _grafico_evolucion_png(valores: list[Decimal], *, ancho: int, alto: int, min
     # baja, no como un hilo aplastado contra el techo de un eje que llega hasta 0. Se
     # rellena hasta el propio suelo del grafico (no hasta el cero) por la misma razon --
     # eso solo pinta peso visual bajo la linea, no afirma nada sobre la distancia a cero.
+    # En el grafico grande el colchon es mayor: hace falta hueco para las etiquetas de
+    # valor de cada punto, que en el mini no existen.
     minimo, maximo = min(y), max(y)
     rango = (maximo - minimo) or (abs(maximo) * 0.1) or 1.0
-    colchon = rango * 0.14
+    colchon = rango * (0.14 if mini else 0.30)
     y_min, y_max = minimo - colchon, maximo + colchon
 
     ax.fill_between(x, y, y_min, color=AZUL, alpha=0.12 if mini else 0.09, linewidth=0)
@@ -893,15 +916,46 @@ def _grafico_evolucion_png(valores: list[Decimal], *, ancho: int, alto: int, min
     if y_min < 0 < y_max:
         ax.axhline(0, color="#9aa0b4", linewidth=1, linestyle=(0, (3, 3)))
 
-    ax.set_xlim(-0.15, len(x) - 1 + 0.15)
+    if mini:
+        ax.set_xticks([])
+        ax.set_xlim(-0.15, len(x) - 1 + 0.15)
+    else:
+        # Cada punto lleva su valor abreviado encima o debajo (segun si cae en la franja
+        # alta del rango, para que la etiqueta no se salga del lienzo por arriba), con un
+        # halo blanco detras: sin el, la etiqueta de un valle o un pico queda cruzada por
+        # la propia linea y se hace ilegible.
+        techo = y_max - rango * 0.22
+        for xi, yi, valor in zip(x, y, valores):
+            arriba = yi < techo
+            ax.annotate(
+                _importe_corto(valor),
+                (xi, yi),
+                xytext=(0, 10 if arriba else -10),
+                textcoords="offset points",
+                ha="center",
+                va="bottom" if arriba else "top",
+                fontsize=9,
+                fontweight="bold",
+                color=AZUL,
+                bbox=dict(
+                    boxstyle="round,pad=0.18", facecolor="white", edgecolor="none", alpha=0.82
+                ),
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels([f.strftime("%d/%m") for f in fechas], fontsize=8.5, color="#6b7280")
+        ax.tick_params(axis="x", length=0, pad=6)
+        ax.set_xlim(-0.6, len(x) - 1 + 0.6)
+
     ax.set_ylim(y_min, y_max)
 
     for spine in ax.spines.values():
         spine.set_visible(False)
-    ax.set_xticks([])
     ax.set_yticks([])
     ax.margins(0)
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.05)
+    if mini:
+        fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.05)
+    else:
+        fig.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.20)
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", transparent=True, dpi=dpi)
@@ -934,8 +988,8 @@ def _bloque_evolucion(titulo: str, fechas: list[Any], valores: list[Decimal]) ->
     if len(fechas) < 2:
         return ""
 
-    png = _grafico_evolucion_png(valores, ancho=720, alto=180, mini=False)
-    img = _img_grafico(png, 720, 180, f"Evolucion — {titulo}")
+    png = _grafico_evolucion_png(fechas, valores, ancho=720, alto=220, mini=False)
+    img = _img_grafico(png, 720, 220, f"Evolucion — {titulo}")
     return (
         f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
         f'margin:20px 0 8px;">Evolucion — {escape(titulo)} '
@@ -965,15 +1019,22 @@ def _grid_evolucion(
         valores = series.get(cod)
         if not valores or all(v == 0 for v in valores):
             continue
-        png = _grafico_evolucion_png(valores, ancho=160, alto=56, mini=True)
+        png = _grafico_evolucion_png(fechas, valores, ancho=160, alto=56, mini=True)
         img = _img_grafico(png, 160, 56, f"Evolucion {cod}")
+        # A la derecha, el primer y el ultimo valor de la ventana, abreviados: en el
+        # correo no se puede pasar el raton por encima del mini-grafico para ver el
+        # detalle, asi que el punto de partida (gris) y el actual (azul) van escritos.
         paneles.append(
             f'<td style="padding:5px;width:25%;">'
             f'<div style="border:1px solid {BORDE};border-radius:7px;padding:8px 10px 6px;">'
             f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
             f'font-family:Barlow,\'Segoe UI\',Arial,sans-serif;">'
             f'<b style="font-size:13px;color:{AZUL};">{escape(cod)}</b>'
-            f'<span style="font-size:10.5px;color:#6b7280;">{escape(_importe(valores[-1]))}</span>'
+            f'<span style="font-size:10.5px;white-space:nowrap;">'
+            f'<span style="color:#9aa0b4;">{escape(_importe_corto(valores[0]))}</span>'
+            f'<span style="color:#9aa0b4;"> &rarr; </span>'
+            f'<span style="color:{AZUL};font-weight:700;">{escape(_importe_corto(valores[-1]))}</span>'
+            f"</span>"
             f"</div>{img}</div></td>"
         )
 
