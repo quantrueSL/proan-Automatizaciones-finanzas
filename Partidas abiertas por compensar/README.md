@@ -236,6 +236,31 @@ Se envian dos tipos de correo:
   que el detalle esta en el PDF adjunto, no las 16 sociedades una detras de otra en el
   propio correo.
 
+### El grafico de evolucion
+
+Cada correo lleva ademas un grafico de linea con los ultimos **7 dias CON foto**
+(`EVOL_DIAS`, `consultar_evolucion_reciente`), no 7 dias de calendario: si un domingo
+no hay particion (el Job corre de lunes a sabado) o un run cualquiera falla, ese dia se
+salta en vez de dibujarse como una caida a cero que no paso.
+
+- **Correo consolidado**: el importe neto total de las 16 sociedades como grafico de
+  cabecera, y debajo una rejilla con un mini-grafico por sociedad — **cada uno a su
+  propia escala**, para que una sociedad con mucho importe y otra con poco se lean
+  igual de bien en vez de que la pequeña salga como una raya plana. Una sociedad sin
+  ninguna partida en toda la ventana no sale en la rejilla.
+- **Correo por sociedad**: la serie de esa sociedad, sin el problema de escala anterior.
+
+**El eje de cada grafico encuadra el rango real de sus valores, no se fuerza a incluir
+el cero.** La linea punteada de referencia en cero solo aparece si el cero cae dentro de
+ese rango — ahi si importa, porque marca un cruce real: el signo sigue al debe y al
+haber, asi que un importe neto puede pasar de positivo a negativo de un dia a otro.
+
+**Se genera como imagen (PNG con matplotlib), no como SVG dentro del HTML**, por la
+misma razon que el resto del correo: que se vea igual en el cuerpo del correo (donde
+SVG inline no es fiable en todos los clientes, Outlook de escritorio el primero) y en
+el PDF. Si la consulta de evolucion falla entera, el correo sale igual, sin esta
+seccion.
+
 ### El PDF adjunto
 
 Cada correo lleva adjunto un PDF: `partidas_pendientes_DBC_20260730.pdf`, o
@@ -244,10 +269,11 @@ formato ISO para que al guardarlos en una carpeta se ordenen solos.
 
 **Se genera con WeasyPrint a partir del MISMO HTML que se usaria para el correo.** Eso es
 lo importante del diseno: hay una sola definicion del layout para cada bloque (resumen,
-seccion de sociedad, tabla de cuenta), asi que un cambio ahi no puede dejar el PDF con una
-columna que el correo no tenga o al reves. La diferencia entre correo y PDF esta solo en
-**cuales de esos bloques se incluyen**: en el consolidado, el PDF junta el resumen y los
-16 bloques completos; el cuerpo del correo se queda solo con el resumen.
+evolucion, seccion de sociedad, tabla de cuenta), asi que un cambio ahi no puede dejar el
+PDF con una columna que el correo no tenga o al reves. La diferencia entre correo y PDF
+esta solo en **cuales de esos bloques se incluyen**: en el consolidado, el PDF junta el
+resumen, la evolucion y los 16 bloques completos; el cuerpo del correo lleva el resumen y
+la evolucion, pero no los 16 bloques.
 
 Encima de ese HTML se aplica una hoja de estilos que solo existe para el PDF
 (`_estilos_pdf`): margenes de pagina, numeracion, se desmonta el marco de tarjeta —que en

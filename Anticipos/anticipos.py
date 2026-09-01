@@ -103,6 +103,24 @@ columna que al otro le falte. Lo que si difiere es que bloques entran en cada un
   completos. Se separo asi para no mandar un correo kilometrico a quien sigue las 16
   sociedades a la vez -- el PDF sigue teniendo todo, para quien lo necesite.
 
+Grafico de evolucion
+---------------------
+Ademas del detalle de hoy, cada correo lleva un grafico de linea con los ultimos
+EVOL_DIAS dias CON foto (consultar_evolucion_reciente): el total en el consolidado (mas
+una rejilla con un mini-grafico por sociedad, cada uno a su propia escala) y la serie
+propia en el correo por sociedad.
+
+Se genera como PNG con matplotlib, no como SVG inline: es lo que se ve igual en el
+cuerpo del correo (donde SVG inline no es fiable en todos los clientes, Outlook de
+escritorio el primero) y en el PDF de WeasyPrint, con una sola imagen en vez de dos
+definiciones que se puedan desincronizar.
+
+El eje encuadra el rango real de los valores, sin forzar que el cero entre en la vista:
+una serie que se mueve entre 990M y 1040M tiene que dibujarse como una linea que sube y
+baja, no como un hilo pegado al techo de un eje que llega hasta cero. La linea de
+referencia en cero solo se dibuja si el cero cae dentro de ese rango -- ahi si importa,
+porque marca un cruce real (saldo que pasa de positivo a negativo).
+
 Destinatarios
 -------------
 Documento Firestore lists/anticipos, con dos bloques:
@@ -150,6 +168,9 @@ SOCIEDADES = (
 TIPO_ANTICIPO = "anticipo"
 TITULO_ANTICIPOS = "Anticipos a proveedores"
 NOTA_ANTICIPOS = "Registrados en SAP como anticipo, en cuentas de activo."
+
+# Cuantos dias con foto entran en el grafico de evolucion (ver consultar_evolucion_reciente).
+EVOL_DIAS = 7
 
 ZONA_MEXICO = ZoneInfo("America/Mexico_City")
 SIN_NOMBRE = "(sin nombre en la maestra)"
@@ -389,6 +410,55 @@ def consultar_totales_ayer(
     except Exception as exc:
         logging.warning("No se pudo leer el total de ayer: %s", exc)
         return None
+
+
+def consultar_evolucion_reciente(
+    client, sociedades: tuple[str, ...], dias: int = EVOL_DIAS
+) -> tuple[list[Any], dict[str, list[Decimal]]] | tuple[None, None]:
+    """
+    Ultimos `dias` CON foto (no `dias` de calendario) por sociedad, para el grafico de
+    evolucion del correo.
+
+    Se piden `dias + 3` de margen de calendario y se recorta a los ultimos `dias` que
+    de verdad tienen fila: asi un domingo sin foto (el Job corre de lunes a sabado) o un
+    dia con el run caido no cuentan como un punto mas, y la ventana sigue teniendo
+    `dias` puntos reales en vez de encogerse.
+
+    Una sociedad sin fila un dia que SI tiene foto es 0 ese dia (no tenia anticipos),
+    igual que en el resto del reporte. Si la consulta entera falla se devuelve
+    (None, None) y el correo sale sin la seccion de evolucion: es un complemento, no
+    un dato que valga la pena bloquear el envio por el.
+    """
+    from google.cloud import bigquery
+
+    consulta = f"""
+        SELECT fecha_reporte, sociedad, SUM(saldo_neto) AS total
+        FROM `{DESTINO}`
+        WHERE fecha_reporte >= DATE_SUB(CURRENT_DATE('America/Mexico_City'), INTERVAL @margen DAY)
+          AND sociedad IN UNNEST(@sociedades)
+        GROUP BY fecha_reporte, sociedad
+    """
+    configuracion = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("margen", "INT64", dias + 3),
+            bigquery.ArrayQueryParameter("sociedades", "STRING", list(sociedades)),
+        ]
+    )
+
+    try:
+        por_dia: dict[Any, dict[str, Decimal]] = {}
+        for fila in client.query(consulta, job_config=configuracion).result():
+            por_dia.setdefault(fila["fecha_reporte"], {})[fila["sociedad"]] = fila["total"]
+    except Exception as exc:
+        logging.warning("No se pudo leer la evolucion reciente: %s", exc)
+        return None, None
+
+    fechas = sorted(por_dia.keys())[-dias:]
+    series = {
+        cod: [por_dia[fecha].get(cod, Decimal("0")) for fecha in fechas]
+        for cod in sociedades
+    }
+    return fechas, series
 
 
 def _etiqueta_sociedad(codigo: str, nombres: dict[str, str]) -> str:
@@ -780,6 +850,153 @@ def _resumen_sociedades(
     )
 
 
+def _grafico_evolucion_png(valores: list[Decimal], *, ancho: int, alto: int, mini: bool) -> bytes:
+    """
+    PNG de linea + area con la evolucion (sin ejes, sin fechas: esas van en el HTML de
+    alrededor, como texto normal en vez de dentro de la imagen).
+
+    Se genera como imagen, no como SVG inline, para que se vea igual en el cuerpo del
+    correo y en el PDF: el SVG inline no es fiable en todos los clientes de correo
+    (Outlook de escritorio el primero), y una sola imagen generada una vez evita que
+    las dos representaciones se desincronicen.
+    """
+    import io
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    escala = 2  # exporta al doble de resolucion; el <img> fija el tamano real en pantalla
+    dpi = 100
+    fig, ax = plt.subplots(figsize=(ancho * escala / dpi, alto * escala / dpi), dpi=dpi)
+
+    y = [float(v) for v in valores]
+    x = list(range(len(y)))
+
+    # El eje encuadra el RANGO real de los datos, no se fuerza a incluir el cero: una
+    # serie que se mueve entre 990M y 1040M tiene que verse como una linea que sube y
+    # baja, no como un hilo aplastado contra el techo de un eje que llega hasta 0. Se
+    # rellena hasta el propio suelo del grafico (no hasta el cero) por la misma razon --
+    # eso solo pinta peso visual bajo la linea, no afirma nada sobre la distancia a cero.
+    minimo, maximo = min(y), max(y)
+    rango = (maximo - minimo) or (abs(maximo) * 0.1) or 1.0
+    colchon = rango * 0.14
+    y_min, y_max = minimo - colchon, maximo + colchon
+
+    ax.fill_between(x, y, y_min, color=AZUL, alpha=0.12 if mini else 0.09, linewidth=0)
+    ax.plot(x, y, color=AZUL, linewidth=2.6 if mini else 3.2,
+             solid_capstyle="round", solid_joinstyle="round")
+    ax.plot(x[-1], y[-1], "o", color=AZUL, markersize=5.5 if mini else 7)
+
+    # La linea de referencia en cero solo tiene sentido si el cero cae dentro de lo que
+    # se ve: es para marcar un cruce real (deudor -> acreedor), no una decoracion fija.
+    if y_min < 0 < y_max:
+        ax.axhline(0, color="#9aa0b4", linewidth=1, linestyle=(0, (3, 3)))
+
+    ax.set_xlim(-0.15, len(x) - 1 + 0.15)
+    ax.set_ylim(y_min, y_max)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.margins(0)
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.05)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True, dpi=dpi)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _img_grafico(png: bytes, ancho: int, alto: int, alt: str) -> str:
+    import base64
+
+    b64 = base64.b64encode(png).decode()
+    return (
+        f'<img src="data:image/png;base64,{b64}" width="{ancho}" height="{alto}" '
+        f'alt="{escape(alt)}" style="display:block;max-width:100%;height:auto;">'
+    )
+
+
+def _rango_fechas(fechas: list[Any]) -> str:
+    return f"{fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m')}"
+
+
+def _bloque_evolucion(titulo: str, fechas: list[Any], valores: list[Decimal]) -> str:
+    """
+    Grafico de linea de una sola serie: el total consolidado, o el de una sociedad.
+
+    Si hay menos de dos puntos (arranque del historico, o toda la ventana caida por un
+    fallo de consultar_evolucion_reciente) no se dibuja nada: una linea con un solo
+    punto no cuenta nada que el numero de al lado ya no diga.
+    """
+    if len(fechas) < 2:
+        return ""
+
+    png = _grafico_evolucion_png(valores, ancho=720, alto=180, mini=False)
+    img = _img_grafico(png, 720, 180, f"Evolucion — {titulo}")
+    return (
+        f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
+        f'margin:20px 0 8px;">Evolucion — {escape(titulo)} '
+        f'<span style="font-weight:400;color:#6b7280;font-size:11px;">'
+        f"(ultimos {len(fechas)} dias con dato)</span></p>"
+        f"{img}"
+        f'<p style="font-size:11px;color:#6b7280;margin:4px 0 0;">{escape(_rango_fechas(fechas))}</p>'
+    )
+
+
+def _grid_evolucion(
+    fechas: list[Any], series: dict[str, list[Decimal]], sociedades: tuple[str, ...] | list[str]
+) -> str:
+    """
+    Rejilla de un mini-grafico por sociedad, cada uno a su propia escala.
+
+    Una tabla HTML, no CSS grid/flex: es lo que funciona igual en todos los clientes de
+    correo. Cuatro columnas caben de sobra en la tarjeta de 800px. Una sociedad sin
+    ningun anticipo en toda la ventana se salta, igual que hoy sale "Sin anticipos
+    pendientes" en el detalle: un panel plano en cero no dice nada.
+    """
+    if len(fechas) < 2:
+        return ""
+
+    paneles = []
+    for cod in sociedades:
+        valores = series.get(cod)
+        if not valores or all(v == 0 for v in valores):
+            continue
+        png = _grafico_evolucion_png(valores, ancho=160, alto=56, mini=True)
+        img = _img_grafico(png, 160, 56, f"Evolucion {cod}")
+        paneles.append(
+            f'<td style="padding:5px;width:25%;">'
+            f'<div style="border:1px solid {BORDE};border-radius:7px;padding:8px 10px 6px;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+            f'font-family:Barlow,\'Segoe UI\',Arial,sans-serif;">'
+            f'<b style="font-size:13px;color:{AZUL};">{escape(cod)}</b>'
+            f'<span style="font-size:10.5px;color:#6b7280;">{escape(_importe(valores[-1]))}</span>'
+            f"</div>{img}</div></td>"
+        )
+
+    if not paneles:
+        return ""
+
+    filas_html = []
+    por_fila = 4
+    for i in range(0, len(paneles), por_fila):
+        fila = paneles[i:i + por_fila]
+        while len(fila) < por_fila:
+            fila.append('<td style="padding:5px;width:25%;"></td>')
+        filas_html.append("<tr>" + "".join(fila) + "</tr>")
+
+    return (
+        f'<p class="titulo-seccion" style="font-size:13px;color:{AZUL};font-weight:700;'
+        f'margin:20px 0 8px;">Evolucion por sociedad '
+        f'<span style="font-weight:400;color:#6b7280;font-size:11px;">'
+        f"(ultimos {len(fechas)} dias con dato)</span></p>"
+        f'<table width="100%" cellpadding="0" cellspacing="0">{"".join(filas_html)}</table>'
+    )
+
+
 def _estilos_pdf() -> str:
     """
     Hoja de estilos que solo se aplica al PDF.
@@ -991,6 +1208,8 @@ def enviar_reportes(
     por_sociedad: dict[str, list[str]],
     nombres: dict[str, str],
     totales_ayer: dict[str, Decimal] | None,
+    fechas_evol: list[Any] | None,
+    series_evol: dict[str, list[Decimal]] | None,
 ) -> list[dict[str, Any]]:
     fecha_texto = fecha_reporte.strftime("%d/%m/%Y")
     sufijo_fichero = fecha_reporte.strftime("%Y%m%d")
@@ -1027,6 +1246,17 @@ def enviar_reportes(
     # PDF adjunto, para no mandar un correo kilometrico a quien sigue las 16 a la vez.
     if globales:
         resumen = _resumen_sociedades(agrupado, nombres, totales_ayer)
+
+        evolucion = ""
+        if fechas_evol and series_evol:
+            total_evol = [
+                sum((series_evol[cod][i] for cod in agrupado), Decimal("0"))
+                for i in range(len(fechas_evol))
+            ]
+            evolucion = _bloque_evolucion("total", fechas_evol, total_evol) + _grid_evolucion(
+                fechas_evol, series_evol, list(agrupado.keys())
+            )
+
         bloques = "".join(
             _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer)
             for sociedad, filas_sociedad in agrupado.items()
@@ -1037,9 +1267,9 @@ def enviar_reportes(
         )
         html, pdf, nombre_pdf = preparar(
             f"Todas las sociedades. Fecha de consulta {fecha_texto}.",
-            resumen + bloques,
+            resumen + evolucion + bloques,
             "anticipos_todas_las_sociedades",
-            contenido_html=resumen + nota_detalle,
+            contenido_html=resumen + evolucion + nota_detalle,
         )
         resultados.append(
             enviar_correo(
@@ -1063,10 +1293,14 @@ def enviar_reportes(
             )
             continue
 
+        evolucion_ind = ""
+        if fechas_evol and series_evol and sociedad in series_evol:
+            evolucion_ind = _bloque_evolucion(sociedad, fechas_evol, series_evol[sociedad])
+
         html, pdf, nombre_pdf = preparar(
             f"Sociedad {_etiqueta_sociedad(sociedad, nombres)}. "
             f"Fecha de consulta {fecha_texto}.",
-            _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer),
+            _bloque_sociedad(sociedad, filas_sociedad, nombres, totales_ayer) + evolucion_ind,
             # El nombre del fichero se queda con el codigo: corto y sin caracteres raros.
             f"anticipos_{sociedad}",
         )
@@ -1118,6 +1352,12 @@ def main() -> None:
     if totales_ayer is None:
         logging.warning("No se pudo obtener el total de ayer para el resumen consolidado")
 
+    fechas_evol, series_evol = consultar_evolucion_reciente(client, sociedades)
+    if fechas_evol is None:
+        logging.warning("No se pudo obtener la evolucion reciente: el correo sale sin grafico")
+    else:
+        logging.info("Evolucion reciente: %s dias con dato", len(fechas_evol))
+
     globales, por_sociedad, origen = resolver_destinatarios()
     logging.info(
         "Destinatarios desde %s: %s globales, %s sociedades con lista propia",
@@ -1127,7 +1367,8 @@ def main() -> None:
     )
 
     resultados = enviar_reportes(
-        agrupado, fecha_reporte, globales, por_sociedad, nombres, totales_ayer
+        agrupado, fecha_reporte, globales, por_sociedad, nombres, totales_ayer,
+        fechas_evol, series_evol,
     )
     for resultado in resultados:
         logging.info("Correo: %s", resultado)
