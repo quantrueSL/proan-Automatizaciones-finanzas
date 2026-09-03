@@ -50,11 +50,18 @@ def _run_chrome(args):
     'engancharse' a una ventana normal ya abierta en la misma máquina (se vio literalmente
     al probar esto -- "Se está abriendo en una sesión de navegador existente") e ignorar
     silenciosamente flags como --force-device-scale-factor. Con perfil propio, headless
-    siempre arranca una instancia aislada."""
+    siempre arranca una instancia aislada.
+
+    --no-sandbox y --disable-dev-shm-usage son ademas necesarios para que esto funcione
+    dentro de Cloud Run/Docker (no en Windows, donde Chrome los ignora sin problema):
+    Chrome se niega a arrancar corriendo como root sin --no-sandbox (el contenedor corre
+    como root salvo que el Dockerfile fije un USER), y /dev/shm suele venir muy chico en
+    contenedores, lo que hace que Chrome truene sin --disable-dev-shm-usage."""
     chrome = _localizar_chrome()
     with tempfile.TemporaryDirectory(prefix="chrome_headless_") as perfil:
         subprocess.run(
-            [chrome, "--headless", "--disable-gpu", f"--user-data-dir={perfil}", *args],
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
+             f"--user-data-dir={perfil}", *args],
             check=True, capture_output=True, timeout=60,
         )
 
@@ -78,7 +85,12 @@ def renderizar_html_a_png(html_path, png_path, ancho=1040, alto_max=4500, color_
 
 
 def _recortar_a_contenido(png_path, color_fondo_hex, escala, margen_css=16):
-    im = Image.open(png_path).convert("RGB")
+    # `with` cierra el archivo apenas termina .convert() (que ya copia los píxeles a
+    # memoria, independiente del archivo original) -- sin esto, Image.open() deja el PNG
+    # bloqueado en Windows y el .save(png_path, ...) de más abajo, que escribe sobre esa
+    # misma ruta, puede chocar con el archivo todavía abierto.
+    with Image.open(png_path) as f:
+        im = f.convert("RGB")
     r, g, b = (int(color_fondo_hex[i:i + 2], 16) for i in (0, 2, 4))
     fondo = Image.new("RGB", im.size, (r, g, b))
     bbox = ImageChops.difference(im, fondo).getbbox()
@@ -90,7 +102,15 @@ def _recortar_a_contenido(png_path, color_fondo_hex, escala, margen_css=16):
         max(0, x0 - margen), max(0, y0 - margen),
         min(im.width, x1 + margen), min(im.height, y1 + margen),
     )
-    im.crop(caja).save(png_path)
+    recortada = im.crop(caja)
+
+    # Cuantizar a 256 colores (paleta indexada) antes de guardar: este diseño es
+    # mayormente colores planos + texto, no fotografía, así que a simple vista queda
+    # idéntico -- pero el archivo baja ~60% (2026-09-03: 489 KB -> 193 KB probado). Se
+    # agregó porque Gmail muestra el correo colapsado ("Mostrar contenido reducido") con
+    # adjuntos/imágenes pesados, incluso con el HTML del cuerpo chico -- ver nota en
+    # enviar_reporte.py.
+    recortada.quantize(colors=256, method=Image.MEDIANCUT).save(png_path, optimize=True)
     return (caja[2] - caja[0]) / escala, (caja[3] - caja[1]) / escala
 
 

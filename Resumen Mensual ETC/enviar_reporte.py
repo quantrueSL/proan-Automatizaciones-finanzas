@@ -14,9 +14,14 @@ HTML supera ~102 KB. Con data: URI los ~650 KB de la imagen en base64 pasan a se
 HTML mismo, muy por encima del límite -- Gmail probablemente recortaba el mensaje. Con cid:
 la imagen es un adjunto aparte (no cuenta para ese límite de 102 KB del HTML) y sí funcionó.
 NO volver a usar data: URI para imágenes de este tamaño sin resolver antes el límite de
-Gmail (ver esa misma nota en el otro reporte para la técnica: mover estilos repetidos a
-clases CSS -- aquí no aplica igual porque el "HTML" es una sola imagen, no hay markup que
-comprimir).
+Gmail.
+
+**Mismo día, segundo hallazgo:** con cid SÍ llega, pero Gmail lo muestra colapsado detrás
+de un "Mostrar contenido reducido" -- confirmado por búsqueda web (no solo el límite de
+102 KB del *cuerpo* HTML: Gmail también colapsa mensajes con imágenes/adjuntos pesados en
+general, aunque el HTML del cuerpo sea chico). Se redujo el peso de la imagen incrustada
+cuantizándola a 256 colores en render_png.py (489 KB -> 193 KB, idéntica a simple vista --
+el diseño es color plano + texto, no foto) para bajar el peso total del correo.
 
 Misma infraestructura de envío que los demás reportes financieros de este repo (SendGrid,
 .env propio de esta carpeta, Firestore como única fuente de destinatarios) -- ver
