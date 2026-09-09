@@ -1,6 +1,6 @@
 # Reporte diario de partidas pendientes de compensar
 
-Cada dia, de lunes a sabado a las 10:00 de Mexico, lista las partidas de cuentas de mayor
+Cada dia, de lunes a sabado a las 10:40 de Mexico, lista las partidas de cuentas de mayor
 que siguen sin compensar en 16 sociedades, guarda una foto en BigQuery y envia un correo
 por sociedad mas uno consolidado. Sustituye el reporte que se sacaba a mano de SAP
 (`reportesEspeciales > reportePartidasPendientes`).

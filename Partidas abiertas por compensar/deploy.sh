@@ -12,7 +12,7 @@ REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 # las 9:30), a proposito: si los dos salieran a la vez llegarian mas de veinte correos de
 # golpe y costaria distinguir cual es cual. El espejo de BSIS se recarga cada pocas horas,
 # asi que a esa hora el dato es del mismo dia.
-SCHEDULER_CRON="0 10 * * 1-6"
+SCHEDULER_CRON="40 10 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
@@ -90,7 +90,7 @@ echo -e "${YELLOW}Configurando variables de entorno del Cloud Run Job...${NC}"
 gcloud run jobs update "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --update-env-vars "^~^PARTIDAS_EMAIL_DRY_RUN=${PARTIDAS_EMAIL_DRY_RUN:-false}~PARTIDAS_ONLY_SOCIEDADES=${PARTIDAS_ONLY_SOCIEDADES:-}~PARTIDAS_EMAIL_TO=${PARTIDAS_EMAIL_TO:-pcoma@quantrue.com}~PARTIDAS_MAX_ANTIGUEDAD_HORAS=${PARTIDAS_MAX_ANTIGUEDAD_HORAS:-6}~SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@proan.com}~SENDGRID_API_KEY=${SENDGRID_API_KEY_VALUE}~FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-proan-lista-mails}~FIRESTORE_LISTS_COLLECTION=${FIRESTORE_LISTS_COLLECTION:-lists}~PARTIDAS_LIST_ID=${PARTIDAS_LIST_ID:-partidas_pendientes}"
+  --update-env-vars "^~^PARTIDAS_EMAIL_DRY_RUN=${PARTIDAS_EMAIL_DRY_RUN:-false}~PARTIDAS_ONLY_SOCIEDADES=${PARTIDAS_ONLY_SOCIEDADES:-}~PARTIDAS_EMAIL_TO=${PARTIDAS_EMAIL_TO:-pcoma@quantrue.com}~PARTIDAS_MAX_ANTIGUEDAD_HORAS=${PARTIDAS_MAX_ANTIGUEDAD_HORAS:-6}~PARTIDAS_SOLO_HASTA_AYER=${PARTIDAS_SOLO_HASTA_AYER:-false}~SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@proan.com}~SENDGRID_API_KEY=${SENDGRID_API_KEY_VALUE}~FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-proan-lista-mails}~FIRESTORE_LISTS_COLLECTION=${FIRESTORE_LISTS_COLLECTION:-lists}~PARTIDAS_LIST_ID=${PARTIDAS_LIST_ID:-partidas_pendientes}"
 
 SCHEDULER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${JOB_NAME}:run"
