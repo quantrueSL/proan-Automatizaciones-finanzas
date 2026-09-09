@@ -227,6 +227,11 @@ def sociedades_objetivo() -> tuple[str, ...]:
     return seleccion
 
 
+def filtro_solo_hasta_ayer() -> bool:
+    """Si True, solo incluir partidas con fecha de contabilizacion anterior a hoy."""
+    return _es_verdadero(os.environ.get("PARTIDAS_SOLO_HASTA_AYER", "false"))
+
+
 # --------------------------------------------------------------------------- #
 # Origen de datos
 # --------------------------------------------------------------------------- #
@@ -270,15 +275,24 @@ def verificar_frescura(client) -> datetime:
     return ultima_carga
 
 
-def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, Any]]:
+def consultar_partidas(
+    client, sociedades: tuple[str, ...], solo_hasta_ayer: bool = False
+) -> list[dict[str, Any]]:
     """
     Una fila por partida abierta, de cualquier clase de documento.
 
     Las fechas vienen como texto YYYYMMDD, y se leen con SAFE.PARSE_DATE porque SAP
     admite valores como '00000000' en fechas no informadas: con PARSE_DATE normal, una
     sola fila mal formada tumbaria la consulta entera.
+
+    Si `solo_hasta_ayer` es True, se excluyen las partidas con fecha_contabilizacion
+    de hoy (que deberían estar compensadas).
     """
     from google.cloud import bigquery
+
+    filtro_fecha = ""
+    if solo_hasta_ayer:
+        filtro_fecha = "AND SAFE.PARSE_DATE('%Y%m%d', BUDAT) < CURRENT_DATE('America/Mexico_City')"
 
     consulta = f"""
         SELECT
@@ -306,6 +320,7 @@ def consultar_partidas(client, sociedades: tuple[str, ...]) -> list[dict[str, An
           IFNULL(SGTXT, '') AS texto
         FROM `{ORIGEN_BSIS}`
         WHERE BUKRS IN UNNEST(@sociedades)
+        {filtro_fecha}
         ORDER BY sociedad, cuenta, dias_abierta DESC, documento, posicion
     """
     configuracion = bigquery.QueryJobConfig(
@@ -1373,7 +1388,7 @@ def main() -> None:
     verificar_frescura(client)
 
     logging.info("Consultando partidas de %s sociedades", len(sociedades))
-    filas = consultar_partidas(client, sociedades)
+    filas = consultar_partidas(client, sociedades, solo_hasta_ayer=filtro_solo_hasta_ayer())
     agrupado = agrupar(filas, sociedades)
     nombres = consultar_nombres_sociedad(client, sociedades)
     logging.info("Nombres de sociedad resueltos: %s de %s", len(nombres), len(sociedades))

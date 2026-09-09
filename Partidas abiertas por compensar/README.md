@@ -305,6 +305,24 @@ fuentes instaladas el PDF saldria con cuadraditos.
 cuerpo.** El dato vale mas que el adjunto: un problema de tipografias no deberia dejar a
 finanzas sin su reporte del dia. El motivo queda en el log.
 
+## Filtro de fecha: partidas de ayer hacia atrás
+
+Por defecto, el reporte incluye todas las partidas abiertas sin importar la fecha de
+contabilización. Si estableces `PARTIDAS_SOLO_HASTA_AYER=true`, el proceso excluye las
+partidas de hoy (fecha_contabilización = hoy), bajo la premisa de que cualquier partida
+abierta hoy es un error de entrada reciente y no debería estar abierta aún.
+
+Este filtro es reversible: es solo una variable de entorno, sin cambios al datos ni a
+BigQuery. Úsalo con `gcloud run jobs execute` para una prueba:
+
+```bash
+gcloud run jobs execute partidas-pendientes-diario --region us-west4 \
+  --update-env-vars PARTIDAS_SOLO_HASTA_AYER=true --wait
+```
+
+Si te gusta el resultado, lo activas permanentemente en el Job redeployando con
+`deploy.sh` y agregando `export PARTIDAS_SOLO_HASTA_AYER=true` al `.env`.
+
 ### Destinatarios
 
 Documento Firestore `lists/partidas_pendientes` en la base `proan-lista-mails`, con el
@@ -344,6 +362,7 @@ Mexico va a **UTC−6 todo el ano** desde 2022, asi que las 10:00 de Mexico son 
 | `PARTIDAS_ONLY_SOCIEDADES` | *(vacio)* | Recorta la ejecucion, para pruebas |
 | `PARTIDAS_EMAIL_TO` | — | Solo si Firestore no tiene lista |
 | `PARTIDAS_MAX_ANTIGUEDAD_HORAS` | `20` | Antiguedad tolerable del espejo. No es 6 como en anticipos: ver arriba |
+| `PARTIDAS_SOLO_HASTA_AYER` | `false` | `true` excluye partidas de hoy (que deberían estar compensadas) |
 | `PARTIDAS_DRY_RUN_DIR` | `salida_dry_run` | Donde deja el HTML en dry run |
 | `FIRESTORE_DATABASE_ID` | `proan-lista-mails` | |
 | `FIRESTORE_LISTS_COLLECTION` | `lists` | |
