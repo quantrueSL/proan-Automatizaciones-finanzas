@@ -2,7 +2,9 @@
 
 ## Alcance
 
-Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext`, un cuadre contable por
+Genera diariamente, a partir de `D30_INTEGRATION.sap_faglflext_rt` (antes `sap_faglflext`,
+cambiado el 2026-08-21 -- mismo esquema y saldos, se actualiza con mayor frecuencia), un
+cuadre contable por
 sociedad: Balance vs. Estado de Resultados. PDF con header, tarjetas KPI, gráfico top 5, tabla
 con estatus por sociedad e insights automáticos. Envía el PDF por correo con el mismo contenido
 visible en el cuerpo del mensaje.
@@ -37,17 +39,27 @@ El mismo Cloud Run Job envía el correo automáticamente al terminar de generar 
 El destinatario principal es el remitente genérico configurado en `SENDGRID_FROM_EMAIL`; los
 destinatarios reales van en copia (`Cc`).
 
-Origen de destinatarios (cascada, ver `enviar_reporte.py`):
+Origen de destinatarios (`get_mailing_list()` en `enviar_reporte.py`):
 
-1. Firestore, base `proan-lista-mails`, colección `lists`, documento `resultado_financiero_diario`.
-2. Si Firestore no existe, está deshabilitado o no tiene emails válidos: `RESULTADO_DIARIO_EMAIL_TO`.
-3. Si tampoco hay valor en entorno: destinatario por defecto hardcodeado en `config.py`.
+La lista vive **solo** en Firestore: base `proan-lista-mails`, colección `lists`, documento
+`reportes-financieros` (campos `emails` como array de strings y `enabled` como booleano). Es el
+mismo documento para los tres reportes financieros, así que un cambio ahí los afecta a los tres.
+
+Para cambiar quién recibe el reporte se edita ese documento y **no hace falta redesplegar**.
+
+Si el documento no existe, tiene `enabled: false`, trae `emails` mal formado o Firestore no
+responde, `get_mailing_list()` devuelve una lista vacía, deja una advertencia en el log y el Job
+termina sin enviar y **sin fallar**. Ya no hay fallback a variable de entorno ni a correos
+hardcodeados: si la lista se apaga, no sale correo — que es justo lo que se busca al apagarla,
+pero conviene saberlo.
 
 ## Configuración (`.env`, ver `.env.example`)
 
 - `SENDGRID_API_KEY` / `SENDGRID_FROM_EMAIL`: credenciales de SendGrid (independientes de las
   de "Reportes diarios contables" -- esta carpeta ya no depende de ese `.env`).
-- `RESULTADO_DIARIO_EMAIL_TO`: fallback de destinatarios (nivel 2 de la cascada).
+- `RESULTADO_DIARIO_EMAIL_TO`: **ya no se usa** (se retiró el 2026-08-20 al pasar la lista a
+  Firestore). El `deploy.sh` todavía la inyecta; es inofensiva, pero puede
+  borrarse en el próximo cambio del script.
 - `RESULTADO_DIARIO_EMAIL_DRY_RUN`: si vale `true`, el Job no envía correo real.
 - `FIRESTORE_DATABASE_ID` / `FIRESTORE_LISTS_COLLECTION` / `RESULTADO_DIARIO_LIST_ID`:
   normalmente no hace falta tocarlos.
@@ -58,7 +70,7 @@ Origen de destinatarios (cascada, ver `enviar_reporte.py`):
 ```bash
 python generar_reporte.py
 python enviar_reporte.py --dry-run
-python enviar_reporte.py --to a@b.com   # override, salta la cascada
+python enviar_reporte.py --to a@b.com   # override, salta la lista de Firestore
 ```
 
 ## Despliegue
@@ -67,6 +79,7 @@ python enviar_reporte.py --to a@b.com   # override, salta la cascada
 bash deploy.sh
 ```
 
-Job separado del de las 4 cuentas contables: `resultado-financiero-diario`. Scheduler:
-`45 7 * * 1-6` (lunes a sábado, 07:45 America/Mexico_City -- 30 min después del Job de las 4
-cuentas).
+Job separado del de las cuentas contables: `resultado-financiero-diario`. Scheduler:
+`0 17 * * 1-6` (lunes a sábado, 17:00 America/Mexico_City -- a la vez que el Job de
+"Reportes diarios contables", cambiado el 2026-08-27; antes 14:00 desde el 2026-08-20, y
+07:45 antes de eso).

@@ -1,4 +1,4 @@
-"""Genera el PDF diario de cuentas contables PROAN a partir de sap_faglflext.
+"""Genera el PDF diario de cuentas contables PROAN a partir de sap_faglflext_rt.
 
 Uso:
     python generar_reporte.py

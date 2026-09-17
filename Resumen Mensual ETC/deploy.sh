@@ -4,28 +4,25 @@ set -euo pipefail
 
 PROJECT_ID="proan-quantrue"
 REGION="us-west4"
-JOB_NAME="resultado-financiero-diario"
-SCHEDULER_JOB_NAME="resultado-financiero-diario-scheduler"
+JOB_NAME="resumen-mensual-etc"
+SCHEDULER_JOB_NAME="resumen-mensual-etc-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Confirmado con el usuario (2026-08-07): Job SEPARADO del Job "reporte-cuentas-diario" (las
-# 4 cuentas contables) -- no comparten Dockerfile ni imagen. Desde el 2026-08-20 SI comparten
-# horario: los dos corren a las 14:00 L-S por peticion del usuario, para que ambos reportes
-# lleguen a la misma hora. (Antes: este a las 07:45 y el otro a las 07:15.)
-# Cambiado de nuevo 2026-08-27 a peticion del usuario: 17:00 L-S (sigue a la vez que
-# reporte-cuentas-diario). Ver la nota mas larga en "Reportes diarios contables/deploy.sh"
-# sobre por que este valor se desincronizo brevemente del Scheduler real ese mismo dia.
-SCHEDULER_CRON="0 17 * * 1-6"
+# Día 1 de cada mes, 08:00 America/Mexico_City -- mismo horario que "Resultado Financiero
+# Mensual" (el otro reporte mensual de este repo), por consistencia. Ajustable: si el
+# cierre de datos de ETC (D60_REPORTING) tarda más en estar listo, correr unos días
+# después (ej. "0 8 3 * *" para el día 3) -- detectar_mes_cerrado() en datos.py ya busca
+# dinámicamente el último mes con MES_CONTABLE < mes en curso, así que no hay que tocar
+# código para eso, solo esta fecha si se corre antes de que los datos estén listos.
+SCHEDULER_CRON="0 8 1 * *"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}Desplegando Resultado Financiero Diario PROAN...${NC}"
+echo -e "${YELLOW}Desplegando Resumen Ejecutivo Mensual ETC...${NC}"
 
-# Carpeta autónoma (2026-08-07): ya NO cae al .env de "Reportes diarios contables" -- cada
-# automatización tiene su propio .env, ver .env.example. Crea uno aquí antes de desplegar.
 if [ -f ".env" ]; then
   set -o allexport
   source .env
@@ -49,15 +46,13 @@ SENDGRID_API_KEY_VALUE="$(strip_newlines "${SENDGRID_API_KEY:-}")"
 require_value "SENDGRID_API_KEY" "${SENDGRID_API_KEY_VALUE}"
 echo -e "${GREEN}SENDGRID_API_KEY detectada, longitud: ${#SENDGRID_API_KEY_VALUE} caracteres.${NC}"
 
-# Variable propia de este reporte (2026-08-07, ya no comparte REPORTE_EMAIL_TO con los otros
-# dos) -- nivel 2 de la cascada Firestore -> env -> default, ver enviar_reporte.py.
-RESULTADO_DIARIO_EMAIL_TO_VALUE="$(strip_newlines "${RESULTADO_DIARIO_EMAIL_TO:-}")"
-require_value "RESULTADO_DIARIO_EMAIL_TO" "${RESULTADO_DIARIO_EMAIL_TO_VALUE}"
-echo -e "${GREEN}RESULTADO_DIARIO_EMAIL_TO detectada: ${RESULTADO_DIARIO_EMAIL_TO_VALUE}${NC}"
+# A diferencia de los otros reportes, este NUNCA tuvo una cascada a variable de entorno
+# para destinatarios -- Firestore (lists/reporte_mensual_etc) es la única fuente desde el
+# día uno, así que no hay un *_EMAIL_TO que exigir aquí.
 
 if [ ! -f "main.py" ]; then
   echo "Error: no se encuentra main.py"
-  echo "Ejecuta este script desde la carpeta 'Resultado Financiero Diario'"
+  echo "Ejecuta este script desde la carpeta 'Resumen Mensual ETC'"
   exit 1
 fi
 
@@ -79,34 +74,29 @@ gcloud services enable \
   firestore.googleapis.com \
   containerregistry.googleapis.com
 
-echo -e "${YELLOW}Construyendo imagen...${NC}"
+echo -e "${YELLOW}Construyendo imagen (incluye Chromium -- tarda más que los otros reportes)...${NC}"
 gcloud builds submit --tag "${REPOSITORY_IMAGE}" .
 
-# 4Gi por consistencia con el resto de automatizaciones, tras el OOM de Partidas
-# abiertas por compensar. Este Job usa reportlab con consultas agregadas pequenas, asi
-# que no comparte ese riesgo, pero el coste extra es insignificante para un Job que
-# corre un par de minutos al dia.
 echo -e "${YELLOW}Desplegando Cloud Run Job...${NC}"
+# Memoria/timeout más altos que los demás reportes de este repo: Chromium headless (PNG +
+# PDF) consume bastante más RAM que matplotlib/ReportLab, y renderizar dos veces (PNG y
+# PDF) más las queries de BigQuery puede tardar más que los 900s de margen de los otros.
 gcloud run jobs deploy "${JOB_NAME}" \
   --image "${REPOSITORY_IMAGE}" \
   --region "${REGION}" \
-  --memory 4Gi \
-  --cpu 1 \
-  --task-timeout 900 \
+  --memory 2Gi \
+  --cpu 2 \
+  --task-timeout 1200 \
   --max-retries 1
 
 # Archivo YAML temporal en vez de "--update-env-vars" inline: en Git Bash (Windows) cualquier
 # argumento que parezca ruta POSIX se "traduce" a ruta de Windows antes de llegar a gcloud
-# (mismo problema ya documentado en "Reportes diarios contables/deploy.sh").
+# (mismo problema ya documentado en los demás deploy.sh de este repo).
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
-# RESULTADO_DIARIO_EMAIL_TO ya no la lee el codigo (la lista vive en Firestore,
-# documento lists/reportes-financieros). Se sigue inyectando por si hace falta volver
-# atras rapido; puede retirarse cuando el cambio lleve tiempo estable.
-RESULTADO_DIARIO_EMAIL_TO: ${RESULTADO_DIARIO_EMAIL_TO_VALUE}
-RESULTADO_DIARIO_EMAIL_DRY_RUN: "${RESULTADO_DIARIO_EMAIL_DRY_RUN:-false}"
-RESULTADO_DIARIO_LIST_ID: ${RESULTADO_DIARIO_LIST_ID:-reportes-financieros}
+RESUMEN_MENSUAL_ETC_EMAIL_DRY_RUN: "${RESUMEN_MENSUAL_ETC_EMAIL_DRY_RUN:-false}"
+RESUMEN_MENSUAL_ETC_LIST_ID: ${RESUMEN_MENSUAL_ETC_LIST_ID:-reporte_mensual_etc}
 FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
 FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}
@@ -125,26 +115,22 @@ JOB_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespa
 
 echo -e "${YELLOW}Concediendo permisos al Scheduler para ejecutar el Job...${NC}"
 # No fatal: la cuenta con la que se despliega (quantrue4@proan.com, rol Editor) no tiene
-# permiso run.jobs.setIamPolicy -- ese permiso está deliberadamente excluido del rol Editor
-# (solo Owner/roles admin de IAM lo tienen). Sin este binding, el Scheduler se crea igual pero
-# el Job le devolverá 403 al intentar invocarlo -- hace falta que alguien con más permisos
-# corra el mismo comando una vez (se imprime abajo si falla).
-# IAM_BINDING_OK se usa al final del script para que el deploy termine con exit code 1 si
-# esto falla, en vez de reportar "Deployment completado" como si todo hubiera ido bien.
-IAM_BINDING_OK=true
+# permiso run.jobs.setIamPolicy (excluido deliberadamente del rol Editor). Sin este
+# binding, el Scheduler se crea igual y SÍ puede invocar el Job de todos modos -- el rol
+# Editor a nivel de proyecto ya incluye run.jobs.run (confirmado con los otros 3 reportes
+# de este repo, ver memoria del proyecto). Este binding es solo un endurecimiento opcional
+# de mínimo privilegio, no bloqueante.
 if ! gcloud run jobs add-iam-policy-binding "${JOB_NAME}" \
   --region "${REGION}" \
   --member "serviceAccount:${SCHEDULER_SA}" \
   --role "roles/run.invoker" >/dev/null 2>&1; then
-  IAM_BINDING_OK=false
-  echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual).${NC}"
-  echo -e "${YELLOW}El Scheduler se va a crear igual, pero NO podrá invocar el Job hasta que alguien con más permisos corra:${NC}"
+  echo -e "${YELLOW}AVISO: no se pudo asignar el permiso run.invoker (falta run.jobs.setIamPolicy en la cuenta actual). No es bloqueante.${NC}"
   echo "  gcloud run jobs add-iam-policy-binding ${JOB_NAME} --region ${REGION} --member serviceAccount:${SCHEDULER_SA} --role roles/run.invoker --project ${PROJECT_ID}"
 fi
 
 # El Job en sí corre bajo esta misma cuenta -- necesita permiso de lectura en BigQuery sobre
-# proan-quantrue (D30_INTEGRATION, D20_DIMENSION). Si el proyecto no le dio ya ese rol a nivel
-# de proyecto (ej. porque ya se hizo para "reporte-cuentas-diario"), descomenta y ajusta:
+# proan-quantrue (D60_REPORTING). Si el proyecto no le dio ya ese rol a nivel de proyecto,
+# descomenta y ajusta:
 # gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 #   --member "serviceAccount:${SCHEDULER_SA}" \
 #   --role "roles/bigquery.dataViewer"
@@ -178,14 +164,9 @@ echo -e "${YELLOW}Variables configuradas en el Cloud Run Job:${NC}"
 gcloud run jobs describe "${JOB_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
-  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'RESULTADO_DIARIO_|SENDGRID_|OUTPUT_DIR|FIRESTORE_' || true
+  --format="value(spec.template.spec.template.spec.containers[0].env[].name)" | tr ',' '\n' | grep -E 'RESUMEN_MENSUAL_ETC_|SENDGRID_|OUTPUT_DIR|FIRESTORE_' || true
 echo -e "${GREEN}Cloud Run Job:${NC} ${JOB_NAME}"
 echo -e "${GREEN}Cloud Scheduler:${NC} ${SCHEDULER_JOB_NAME}"
 echo -e "${GREEN}Horario:${NC} ${SCHEDULER_CRON} (${SCHEDULER_TIMEZONE})"
 echo -e "${GREEN}Ejecucion manual:${NC}"
 echo "gcloud run jobs execute ${JOB_NAME} --region ${REGION} --wait"
-
-if [ "${IAM_BINDING_OK}" = false ]; then
-  echo -e "${YELLOW}ATENCION: el Scheduler no puede invocar el Job todavia. Corre el comando de arriba antes de confiar en el envio automatico de manana.${NC}"
-  exit 1
-fi

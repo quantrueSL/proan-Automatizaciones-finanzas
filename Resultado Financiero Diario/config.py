@@ -12,7 +12,11 @@ import os
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PROJECT_ID = "proan-quantrue"
-TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
+# Cambiado 2026-08-21: antes `sap_faglflext`. `sap_faglflext_rt` es la misma tabla (esquema
+# idéntico, mismo filtro 0L/0/001, mismos saldos verificados por sociedad) pero se actualiza
+# con mayor frecuencia. NOTA: esta constante no se usaba en datos.py (la query tenía la tabla
+# hardcodeada aparte) -- ver datos.py, también actualizado.
+TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`"
 
 # Tolerancia para considerar Dif. == 0 (evita falsos positivos por redondeo de centavos).
 # Pedido explícito del usuario para este reporte: "> 0.01".
@@ -94,7 +98,7 @@ SOCIEDADES = {
 
 # Hueco de cobertura conocido (2026-08-17): "Procesadora Tecnológica de Polímeros", que SÍ es
 # una fila de la tabla de referencia del PDF "Resultado financiero diario.pdf", no existe ni en
-# D20_DIMENSION.dm_company ni en sap_faglflext -- no hay ningún RBUKRS que le corresponda. Este
+# D20_DIMENSION.dm_company ni en sap_faglflext_rt -- no hay ningún RBUKRS que le corresponda. Este
 # reporte nunca la va a mostrar, y no es un error del código: la sociedad no está replicada en
 # BigQuery. Si finanzas la necesita en el cuadre, hay que pedir su alta a sistemas.
 
@@ -109,15 +113,16 @@ FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 # Misma carpeta de salida que el resto de reportes (Windows local / Cloud Run vía OUTPUT_DIR).
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", r"C:\Users\Lucia\proan_reporte_diario\salidas")
 
-# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------------
-# Mismo patrón que "Cambio divisa/divisa.py" -- Firestore (lista administrable sin redeploy)
-# -> variable de entorno (fallback) -> tupla hardcodeada (último recurso). Variable y list_id
-# propios de este reporte (ya no comparte REPORTE_EMAIL_TO con los otros dos, ver briefing
-# 2026-08-07) -- aunque el destinatario ACTUAL siga siendo el mismo (lucigo30@ucm.es), ahora
-# se puede cambiar sin tocar los otros reportes.
+# --- Destinatarios: lista administrada en Firestore ---------------------------------------
+# Fuente unica: el documento lists/reportes-financieros de la base proan-lista-mails
+# (compartido por los tres reportes financieros). Se lee con get_mailing_list() en
+# enviar_reporte.py. Ya no hay cascada a variable de entorno ni tupla hardcodeada.
 FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
 FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
-RESULTADO_DIARIO_LIST_ID = os.environ.get("RESULTADO_DIARIO_LIST_ID", "resultado_financiero_diario").strip()
+RESULTADO_DIARIO_LIST_ID = os.environ.get("RESULTADO_DIARIO_LIST_ID", "reportes-financieros").strip()
 EMAIL_ASUNTO_TEMPLATE = "Resultado Financiero Diario PROAN - {fecha}"
-EMAIL_DESTINATARIO_DEFAULT = "lucigo30@ucm.es"
-DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)
+# Los destinatarios ya NO viven en el codigo: se administran en el documento de
+# Firestore lists/reportes-financieros (base proan-lista-mails). Ver get_mailing_list()
+# en enviar_reporte.py. Se retiraron EMAIL_DESTINATARIO_DEFAULT y
+# DEFAULT_EMAIL_RECIPIENTS el 2026-08-20 para que no quede una copia de los correos
+# aqui que pueda desincronizarse de la lista real.

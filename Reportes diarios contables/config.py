@@ -5,12 +5,18 @@ import os
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PROJECT_ID = "proan-quantrue"
-TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext`"
+# Cambiado 2026-08-21: antes `sap_faglflext`. `sap_faglflext_rt` es la misma tabla (esquema
+# idéntico verificado en BigQuery, mismo filtro 0L/0/001, mismos saldos por sociedad) pero se
+# actualiza con mayor frecuencia -- confirmado con una comparación de saldos y conteo de filas
+# por sociedad contra `sap_faglflext` antes de cambiarla (diff = 0 en todas, _rt con algunas
+# filas más recientes).
+TABLE_FQN = "`proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`"
 
 # Filtros fijos usados en la consulta validada por el usuario para Gastos no Deducibles.
-# Verificado en BigQuery (2026-08): las 417,443 filas de sap_faglflext tienen exactamente
-# esta combinación (0L / 0 / 001) -- la tabla no trae otra, así que estos filtros son
-# redundantes hoy. Se dejan de todos modos por seguridad ante un cambio futuro de datos.
+# Verificado en BigQuery (2026-08): las 417,443 filas de sap_faglflext (ahora sap_faglflext_rt)
+# tienen exactamente esta combinación (0L / 0 / 001) -- la tabla no trae otra, así que estos
+# filtros son redundantes hoy. Se dejan de todos modos por seguridad ante un cambio futuro de
+# datos.
 LEDGER = "0L"
 RECORD_TYPE = "0"
 VERSION = "001"
@@ -37,7 +43,7 @@ VERSION = "001"
 # en adelante -- no existe ningún snapshot del cierre de 2024 ni de 2025 (la tabla de
 # snapshots se empezó a llenar después de que ambos cierres ya habían pasado). Por decisión
 # del usuario, mientras tanto "anterior" se sigue calculando desde la tabla viva
-# sap_faglflext (mismo mecanismo de siempre, fetch_cuenta), con el riesgo ya documentado de
+# sap_faglflext_rt (mismo mecanismo de siempre, fetch_cuenta), con el riesgo ya documentado de
 # reclasificación de ejercicios cerrados (ver nota de Variación de Precios). Corregir esto
 # usando un snapshot real en cuanto exista uno tomado en un cierre (el próximo: dic. 2026).
 #
@@ -51,14 +57,30 @@ CUENTAS = {
     "Mermas": ["0005010628"],
     "Variación de Precios": ["0005010632"],
     "Gastos no Deducibles": ["0005020000"],
+    # Agregada 2026-08-27 a pedido del usuario ("cuenta de pasivo temporal... creo que el
+    # número es 209000"). Confirmada en el catálogo D00_SANDBOX.proan_SKAT_20260804: plan
+    # PROA, SAKNR 0002090000, TXT50 "Pasivo Temporal" -- coincide exacto con lo pedido (no
+    # confundir con 0002090001 "IEPS No Desglosado", vecina en el mismo prefijo). Es
+    # justamente la cuenta del prototipo "Reporte Pasivo Temporal" que ya se menciona como
+    # referencia del formato único más arriba -- por eso "de la misma forma" es Plantilla A
+    # (banner + KPIs + gráfico + tabla), igual que Gastos no Deducibles, sin ABS() ni
+    # CUENTAS_SOLO_DEBE (neto Debe-Haber directo, dígito 2 = Pasivo, se valida igual que las
+    # demás de este tipo). Datos reales en sap_faglflext_rt confirmados antes de activarla
+    # (17 sociedades con saldo material en 2026, todas en negativo -- convención SAP estándar
+    # para Pasivo).
+    "Pasivo Temporal": ["0002090000"],
 }
 
 # Solo se generan las cuentas listadas aquí; las demás se activan a medida que se validen
 # sus queries. Mermas (0005010628) se activó como "Plantilla A" (cuenta única, igual
 # formato que Gastos no Deducibles). Igual que Gastos no Deducibles: dígito 5 (egresos),
 # sin ABS(), tabla viva (mismo criterio que el resto -- ver nota de snapshot pendiente
-# más abajo).
-CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Mermas"]
+# más abajo). Pasivo Temporal se insertó ANTES de "Mermas" (no al final de la lista):
+# generar_reporte.py/enviar_reporte.py agregan la sección "Mermas ratio" inmediatamente
+# después de terminar este bucle, así que Mermas tiene que seguir siendo la ÚLTIMA entrada
+# aquí para que sus dos formas (importe/razón) queden en páginas contiguas -- si se agrega
+# otra cuenta a este bucle en el futuro, ponerla antes de "Mermas", nunca después.
+CUENTAS_ACTIVAS = ["Gastos no Deducibles", "Pasivo Temporal", "Mermas"]
 
 # --- Dos formas de reportar la misma cuenta: importe vs. razón ----------------------
 # Mermas y Descuentos/Bonificaciones se emiten AMBAS en las dos formas, en secciones
@@ -89,7 +111,7 @@ TITULOS_SECCION = {
 #    prefijo 000504), y GAGE = "Gastos generales", que es todo el resto (000501/000502/
 #    000503). Eso corresponde 1:1 con los dos únicos hijos de EGRESOS en el árbol de ZF01
 #    ("Costos" y "Gastos generales"). El catálogo se usó SOLO para obtener la lista de
-#    cuentas; todos los importes de este reporte salen de sap_faglflext y nada más.
+#    cuentas; todos los importes de este reporte salen de sap_faglflext_rt y nada más.
 # 2. Validado contra el Excel de finanzas "Mermas" (FY2024, con corte en el periodo 7):
 #    la suma de 000504% cuadra AL PESO en 9 sociedades -- CCP 657,173,985 · GSI
 #    6,252,798,495 · AME 610,530,076 · PAL 585,236,860 · MPE 284,112,661 · HEGP 232,217,290
@@ -284,24 +306,24 @@ FONT_MONO_BOLD_TTF = os.path.join(_BASE_DIR, "fonts", "IBMPlexMono-Bold.ttf")
 
 MAX_SOCIEDADES_EN_GRAFICO = 20
 
-# --- Envío de correo: cascada de destinatarios vía Firestore -----------------------
-# Mismo patrón que "Cambio divisa/divisa.py", "Anticipos/anticipos.py" y "Partidas abiertas
-# por compensar/partidas.py": Firestore (lista administrable sin redeploy) -> variable de
-# entorno (fallback) -> tupla hardcodeada (último recurso). Antes este reporte y los otros
-# 2 de Lucia compartían el mismo nombre de variable (REPORTE_EMAIL_TO) -- no se podía dar un
-# destinatario distinto a cada uno sin tocar código. Ahora cada uno tiene su propio nombre de
-# variable y su propio documento en Firestore (ver briefing 2026-08-07).
+# --- Destinatarios: lista administrada en Firestore ---------------------------------------
+# Fuente unica: el documento lists/reportes-financieros de la base proan-lista-mails
+# (compartido por los tres reportes financieros). Se lee con get_mailing_list() en
+# enviar_reporte.py. Ya no hay cascada a variable de entorno ni tupla hardcodeada.
 FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
 FIRESTORE_LISTS_COLLECTION = os.environ.get("FIRESTORE_LISTS_COLLECTION", "lists").strip()
-REPORTE_CUENTAS_LIST_ID = os.environ.get("REPORTE_CUENTAS_LIST_ID", "reporte_cuentas_diario").strip()
-EMAIL_DESTINATARIO_DEFAULT = "luciaggx4@gmail.com"
-DEFAULT_EMAIL_RECIPIENTS = (EMAIL_DESTINATARIO_DEFAULT,)
+REPORTE_CUENTAS_LIST_ID = os.environ.get("REPORTE_CUENTAS_LIST_ID", "reportes-financieros").strip()
+# Los destinatarios ya NO viven en el codigo: se administran en el documento de
+# Firestore lists/reportes-financieros (base proan-lista-mails). Ver get_mailing_list()
+# en enviar_reporte.py. Se retiraron EMAIL_DESTINATARIO_DEFAULT y
+# DEFAULT_EMAIL_RECIPIENTS el 2026-08-20 para que no quede una copia de los correos
+# aqui que pueda desincronizarse de la lista real.
 EMAIL_ASUNTO_TEMPLATE = "Reporte diario cuentas contables PROAN - {fecha}"
 EMAIL_CUERPO_TEMPLATE = (
     "Hola Luis Enrique,\n\n"
     "Adjunto el reporte diario de cuentas contables PROAN correspondiente al {fecha}, "
-    "con las secciones de Gastos no Deducibles, Mermas, Descuentos y Bonificaciones y "
-    "Variación de Precios.\n\n"
+    "con las secciones de Gastos no Deducibles, Pasivo Temporal, Mermas, Descuentos y "
+    "Bonificaciones y Variación de Precios.\n\n"
     "Mermas y Descuentos van cada una en DOS formas, en secciones seguidas: el importe de "
     "la cuenta por sociedad, y la misma cuenta como porcentaje sobre su base (Mermas sobre "
     "el Costo Total, Descuentos sobre los Ingresos). Están las dos porque no está definido "

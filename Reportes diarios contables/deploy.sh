@@ -8,9 +8,16 @@ JOB_NAME="reporte-cuentas-diario"
 SCHEDULER_JOB_NAME="reporte-cuentas-diario-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Confirmado con el usuario: lunes a sabado a las 07:15 de Mexico (antes de que el equipo
+# Cambiado 2026-08-20 a peticion del usuario: lunes a sabado a las 14:00 de Mexico, a la vez
+# que el Job de Resultado Financiero Diario, para que los dos reportes lleguen juntos.
+# (Antes: 07:15, antes de que el equipo
 # entre), para no chocar con Anticipos (10:00) ni Partidas (10:10).
-SCHEDULER_CRON="15 7 * * 1-6"
+# Cambiado de nuevo 2026-08-27 a peticion del usuario: 17:00 de Mexico (sigue L-S, sigue a
+# la vez que Resultado Financiero Diario). Ese dia tambien se detecto que el Scheduler real
+# habia quedado desincronizado de este archivo (alguien corrio deploy.sh con una copia vieja
+# del repo y piso el cron de las 14:00 con el antiguo 07:15) -- si se vuelve a tocar este
+# valor, redesplegar cuanto antes para que el repo y GCP no diverjan.
+SCHEDULER_CRON="0 17 * * 1-6"
 SCHEDULER_TIMEZONE="America/Mexico_City"
 
 GREEN='\033[0;32m'
@@ -99,9 +106,12 @@ gcloud run jobs deploy "${JOB_NAME}" \
 ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "${ENV_VARS_FILE}"' EXIT
 cat > "${ENV_VARS_FILE}" <<EOF
+# REPORTE_CUENTAS_EMAIL_TO ya no la lee el codigo (la lista vive en Firestore,
+# documento lists/reportes-financieros). Se sigue inyectando por si hace falta volver
+# atras rapido; puede retirarse cuando el cambio lleve tiempo estable.
 REPORTE_CUENTAS_EMAIL_TO: ${REPORTE_CUENTAS_EMAIL_TO_VALUE}
 REPORTE_CUENTAS_EMAIL_DRY_RUN: "${REPORTE_CUENTAS_EMAIL_DRY_RUN:-false}"
-REPORTE_CUENTAS_LIST_ID: ${REPORTE_CUENTAS_LIST_ID:-reporte_cuentas_diario}
+REPORTE_CUENTAS_LIST_ID: ${REPORTE_CUENTAS_LIST_ID:-reportes-financieros}
 FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-proan-lista-mails}
 FIRESTORE_LISTS_COLLECTION: ${FIRESTORE_LISTS_COLLECTION:-lists}
 SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@proan.com}

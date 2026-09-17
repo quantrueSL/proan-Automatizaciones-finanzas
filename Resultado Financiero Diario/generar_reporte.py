@@ -1,5 +1,5 @@
 """Genera el PDF "Resultado Financiero diario" (cuadre por sociedad) a partir de
-sap_faglflext. Reporte SEPARADO del de "Reportes diarios contables" -- no lo toca, no
+sap_faglflext_rt. Reporte SEPARADO del de "Reportes diarios contables" -- no lo toca, no
 comparte PDF ni envío de correo (ver briefing 2026-08-07).
 
 Uso:

@@ -1,5 +1,5 @@
 """Genera el PDF "Resultado Financiero Mensual" (Ingresos/Egresos/Resultado, últimos 2 meses
-YA CERRADOS -- el mes en curso no aparece) a partir de sap_faglflext. Reporte SEPARADO del
+YA CERRADOS -- el mes en curso no aparece) a partir de sap_faglflext_rt. Reporte SEPARADO del
 diario y de las 4 cuentas contables.
 
 Uso:

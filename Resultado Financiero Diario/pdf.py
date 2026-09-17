@@ -466,7 +466,7 @@ def _footer(fecha_str, hora_str):
     usuario = getpass.getuser()
     texto = (
         f"Última actualización: {fecha_str} {hora_str}  |  "
-        f"Fuente de datos: BigQuery -- proan-quantrue.D30_INTEGRATION.sap_faglflext  |  "
+        f"Fuente de datos: BigQuery -- proan-quantrue.D30_INTEGRATION.sap_faglflext_rt  |  "
         f"Versión del reporte: v2  |  Generado por: {usuario}"
     )
     return Paragraph(texto, _STYLE_FOOTER)

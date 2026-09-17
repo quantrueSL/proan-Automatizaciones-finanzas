@@ -117,7 +117,11 @@ WITH unpivot_vivo AS (
     RACCT_AccountNumber AS cuenta,
     periodo,
     valor
-  FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext`
+  -- Cambiado 2026-08-21: antes sap_faglflext. Mismo esquema y saldos verificados,
+  -- sap_faglflext_rt se actualiza con mayor frecuencia. No confundir con sap_faglflext2_*
+  -- (snapshots de D10_POSTPROCESSING, usados abajo solo para el chequeo de estabilidad) --
+  -- ese nombre no cambia.
+  FROM `proan-quantrue.D30_INTEGRATION.sap_faglflext_rt`
   {_HSL_UNPIVOT}
   WHERE {_FILTRO_CUENTAS_RES}
 ),
