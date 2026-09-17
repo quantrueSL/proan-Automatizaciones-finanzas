@@ -57,16 +57,15 @@ Decisiones tomadas, con su motivo
 
 5. DMBTR se convierte a NUMERIC antes de sumar.
 
-   En la tabla espejo DMBTR es FLOAT. Sumar importes en coma flotante arrastra error;
-   NUMERIC es aritmetica decimal exacta, que es lo que corresponde a dinero.
+   RT_BSIK ya lo entrega como NUMERIC; se mantiene el CAST explicito para que el
+   calculo sea decimal exacto aunque cambie el tipo fisico de origen.
 
-6. Se aborta si el espejo esta caducado.
+6. Se aborta si la foto de RT_BSIK esta caducada.
 
-   bsik_real_time no la carga el Airflow del DWH: es un espejo que un replicador
-   externo reescribe entera cada dos horas (todas las filas comparten marca de
-   _ingested_at). Si ese replicador se para, la tabla se queda con datos viejos sin
-   avisar. Antes de enviar nada se comprueba la antiguedad de la ultima carga y el
-   proceso falla en vez de mandar un reporte caducado como si fuera del dia.
+   Airflow reemplaza RT_BSIK entera desde un snapshot diario. Como no tiene
+   _ingested_at, se usa la fecha de modificacion de la tabla en BigQuery. Si Airflow
+   se para, la tabla se queda con datos viejos sin avisar. Antes de enviar nada se
+   comprueba esa antiguedad y el proceso falla en vez de mandar un reporte caducado.
 
 Persistencia
 ------------
@@ -150,7 +149,7 @@ from zoneinfo import ZoneInfo
 
 
 PROJECT_ID = "proan-quantrue"
-ORIGEN_BSIK = f"{PROJECT_ID}.D00_SANDBOX.bsik_real_time"
+ORIGEN_BSIK = f"{PROJECT_ID}.D00_SANDBOX.RT_BSIK"
 ORIGEN_PROVEEDORES = f"{PROJECT_ID}.D20_DIMENSION.dm_vendors"
 ORIGEN_SOCIEDADES = f"{PROJECT_ID}.D20_DIMENSION.dm_company"
 DESTINO = f"{PROJECT_ID}.D60_REPORTING.Anticipos_evolucion"
@@ -229,27 +228,26 @@ def sociedades_objetivo() -> tuple[str, ...]:
 # --------------------------------------------------------------------------- #
 
 def verificar_frescura(client) -> datetime:
-    """Comprueba que el espejo de BSIK no esta caducado. Falla si lo esta."""
+    """Comprueba que la foto materializada de RT_BSIK no esta caducada."""
     horas_maximas = int(os.environ.get("ANTICIPOS_MAX_ANTIGUEDAD_HORAS", "6"))
 
-    consulta = f"SELECT MAX(_ingested_at) AS ultima_carga FROM `{ORIGEN_BSIK}`"
-    fila = next(client.query(consulta).result(), None)
-    ultima_carga = fila["ultima_carga"] if fila is not None else None
+    tabla = client.get_table(ORIGEN_BSIK)
+    ultima_carga = tabla.modified
     if ultima_carga is None:
-        raise RuntimeError(f"La tabla {ORIGEN_BSIK} esta vacia: no hay nada que reportar.")
+        raise RuntimeError(f"No se pudo leer la fecha de modificacion de {ORIGEN_BSIK}.")
 
     antiguedad = datetime.now(timezone.utc) - ultima_carga
     logging.info(
-        "Ultima carga del espejo: %s (hace %.1f horas)",
+        "Ultima modificacion de RT_BSIK: %s (hace %.1f horas)",
         ultima_carga.isoformat(),
         antiguedad.total_seconds() / 3600,
     )
 
     if antiguedad > timedelta(hours=horas_maximas):
         raise RuntimeError(
-            f"El espejo {ORIGEN_BSIK} tiene {antiguedad.total_seconds() / 3600:.1f} horas de "
-            f"antiguedad, mas del maximo de {horas_maximas}. El replicador de SAP puede estar "
-            f"parado. No se envia el reporte para no dar por bueno un dato caducado."
+            f"La tabla {ORIGEN_BSIK} tiene {antiguedad.total_seconds() / 3600:.1f} horas de "
+            f"antiguedad, mas del maximo de {horas_maximas}. Airflow puede estar parado. "
+            f"No se envia el reporte para no dar por bueno un dato caducado."
         )
 
     return ultima_carga

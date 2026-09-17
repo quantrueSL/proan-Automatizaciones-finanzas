@@ -17,9 +17,9 @@ alguien tiene que perseguir. De ahi que lo importante sea la antiguedad.
 
 De donde sale
 -------------
-D00_SANDBOX.bsis_real_time, espejo de BSIS: el indice de partidas ABIERTAS de cuentas
-de mayor. Es el hermano de BSIK, que indexa por proveedor; este indexa por cuenta
-contable.
+D00_SANDBOX.RT_BSIS, foto diaria materializada de BSIS: el indice de partidas ABIERTAS
+de cuentas de mayor. Es el hermano de RT_BSIK, que indexa por proveedor; este indexa
+por cuenta contable.
 
 Entran todas las clases de documento (BLART): antes solo se mostraba 'ZR' (traspasos y
 movimientos de banco), pero el cliente quiere ver el resto tambien. BLART se muestra en
@@ -77,15 +77,14 @@ Decisiones tomadas, con su motivo
    al lado, lo que induce a error. Se dice una vez en el pie del correo y se quita la
    columna.
 
-6. Se aborta si el espejo esta caducado, con un umbral distinto al de anticipos.
+6. Se aborta si la foto de RT_BSIS esta caducada, con un umbral distinto al de anticipos.
 
-   bsis_real_time se reescribe entera desde SAP, pero NO al mismo ritmo que bsik: BSIK y
-   BSID se recargan cada dos horas, BSIS carga de madrugada y no se mueve el resto del
-   dia. Por eso aqui el umbral son 20 horas y alli 6. El detalle esta en la docstring de
-   verificar_frescura.
+   Airflow reemplaza RT_BSIS entera desde un snapshot diario. Como no tiene
+   _ingested_at, se usa la fecha de modificacion de la tabla en BigQuery. Por eso aqui
+   el umbral son 20 horas y alli 6. El detalle esta en la docstring de verificar_frescura.
 
-   Si el replicador se para, la tabla se queda con datos viejos sin avisar. Antes de
-   enviar nada se comprueba la antiguedad de la ultima carga y el proceso falla, en vez
+   Si Airflow se para, la tabla se queda con datos viejos sin avisar. Antes de enviar
+   nada se comprueba la antiguedad de la ultima modificacion y el proceso falla, en vez
    de mandar un reporte caducado como si fuera del dia.
 
 Persistencia
@@ -155,7 +154,7 @@ from zoneinfo import ZoneInfo
 
 
 PROJECT_ID = "proan-quantrue"
-ORIGEN_BSIS = f"{PROJECT_ID}.D00_SANDBOX.bsis_real_time"
+ORIGEN_BSIS = f"{PROJECT_ID}.D00_SANDBOX.RT_BSIS"
 ORIGEN_SOCIEDADES = f"{PROJECT_ID}.D20_DIMENSION.dm_company"
 DESTINO = f"{PROJECT_ID}.D60_REPORTING.Partidas_pendientes_evolucion"
 
@@ -238,38 +237,32 @@ def filtro_solo_hasta_ayer() -> bool:
 
 def verificar_frescura(client) -> datetime:
     """
-    Comprueba que el espejo de BSIS no esta caducado. Falla si lo esta.
+    Comprueba que la foto materializada de RT_BSIS no esta caducada. Falla si lo esta.
 
-    El umbral por defecto son 20 horas, no 6 como en el reporte de anticipos, porque
-    BSIS y BSIK NO se recargan al mismo ritmo. BSIK y BSID se reescriben cada dos horas
-    (a los minutos :06 y :02); BSIS se cargo a las 06:57 UTC, o sea las 00:57 de Mexico,
-    y no se movio en el resto del dia. Minuto distinto, pipeline distinto.
-
-    Con eso, a las 10:00 de Mexico el dato de BSIS tiene unas 9 horas de vida, asi que un
-    umbral de 6 lo rechazaria siempre. 20 horas funciona igual si la carga es diaria o si
-    fuera mas frecuente, y sigue cazando un dia entero sin carga: a la hora del reporte
-    eso serian unas 33 horas.
+    No hay columna _ingested_at: Airflow reemplaza la tabla desde un snapshot diario,
+    asi que su fecha de modificacion (metadata de BigQuery) hace de sustituto. El umbral
+    por defecto son 20 horas, frente a 6 en anticipos. Si falta una ejecucion diaria,
+    a la hora del reporte superara el umbral y el envio fallara.
     """
     horas_maximas = int(os.environ.get("PARTIDAS_MAX_ANTIGUEDAD_HORAS", "20"))
 
-    consulta = f"SELECT MAX(_ingested_at) AS ultima_carga FROM `{ORIGEN_BSIS}`"
-    fila = next(client.query(consulta).result(), None)
-    ultima_carga = fila["ultima_carga"] if fila is not None else None
+    tabla = client.get_table(ORIGEN_BSIS)
+    ultima_carga = tabla.modified
     if ultima_carga is None:
-        raise RuntimeError(f"La tabla {ORIGEN_BSIS} esta vacia: no hay nada que reportar.")
+        raise RuntimeError(f"No se pudo leer la fecha de modificacion de {ORIGEN_BSIS}.")
 
     antiguedad = datetime.now(timezone.utc) - ultima_carga
     logging.info(
-        "Ultima carga del espejo: %s (hace %.1f horas)",
+        "Ultima modificacion de RT_BSIS: %s (hace %.1f horas)",
         ultima_carga.isoformat(),
         antiguedad.total_seconds() / 3600,
     )
 
     if antiguedad > timedelta(hours=horas_maximas):
         raise RuntimeError(
-            f"El espejo {ORIGEN_BSIS} tiene {antiguedad.total_seconds() / 3600:.1f} horas de "
-            f"antiguedad, mas del maximo de {horas_maximas}. El replicador de SAP puede estar "
-            f"parado. No se envia el reporte para no dar por bueno un dato caducado."
+            f"La tabla {ORIGEN_BSIS} tiene {antiguedad.total_seconds() / 3600:.1f} horas de "
+            f"antiguedad, mas del maximo de {horas_maximas}. Airflow puede estar parado. "
+            f"No se envia el reporte para no dar por bueno un dato caducado."
         )
 
     return ultima_carga
