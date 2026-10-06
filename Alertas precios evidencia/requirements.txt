@@ -1,0 +1,9 @@
+google-cloud-bigquery
+google-cloud-firestore
+db-dtypes
+pandas
+numpy
+matplotlib
+reportlab
+python-dotenv
+sendgrid==6.11.0
