@@ -14,6 +14,7 @@ propia carpeta con su propio despliegue.
 | [`Reportes diarios contables`](Reportes%20diarios%20contables/README.md) | En pruebas | Reporte diario en PDF de 5 cuentas contables (Gastos no Deducibles, Pasivo Temporal, Mermas, Descuentos y Bonificaciones, Variación de Precios), con resumen visual en el cuerpo del correo. Mermas y Descuentos van en dos formas (importe y % sobre su base) a la espera de que finanzas decida cuál es la correcta. |
 | [`Resultado Financiero Diario`](Resultado%20Financiero%20Diario/README.md) | En pruebas | Cuadre contable diario por sociedad (Balance vs. Estado de Resultados) -- aún sin validar contra SAP ZF01 en vivo. |
 | [`Resultado Financiero Mensual`](Resultado%20Financiero%20Mensual/README.md) | En pruebas | Ingresos/Egresos/Resultado por sociedad de los últimos 2 meses cerrados, con chequeo de estabilidad contra un snapshot de ~14 días atrás. |
+| [`Alertas precios evidencia`](Alertas%20precios%20evidencia/README.md) | En desarrollo | Envía cada día un PDF con la evidencia (histórico de precios y facturas) de las alertas de precio graves cuya factura ya está disponible; las que esperan factura salen el día que llega. |
 
 Cada carpeta con una automatización desarrollada incluye su propio `README.md`
 con el detalle técnico, variables de entorno y pasos de deploy.
