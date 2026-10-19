@@ -103,10 +103,10 @@ def clasificar(alertas, lineas, cfdi, enviadas):
 def seleccionar(pend):
     """Las que salen hoy: primero las más antiguas (para que ninguna se quede atrás), y dentro de cada día por impacto.
 
-    Si superan el tope por correo, las que no entran se quedan pendientes para mañana.
+    Si una sociedad supera el tope por correo, las que no entran se quedan pendientes para mañana.
     """
     sale = pend[pend.estado.isin(["lista", "caducada"])].sort_values(["fecha", "impacto"], ascending=[True, False])
-    return sale.head(config.MAX_ALERTAS_CORREO).reset_index(drop=True)
+    return sale.groupby("sociedad").head(config.MAX_ALERTAS_CORREO).reset_index(drop=True)  # tope por sociedad
 
 
 # --- Qué factura se enseña ---------------------------------------------------------------------------------------
@@ -126,52 +126,68 @@ def es_global(cf):
 
 
 def candidatas_referencia(alerta, hist):
-    """Ventas recientes del mismo producto cerca del precio esperado, primero de otros clientes y las más nuevas."""
+    """Ventas del mismo producto y sociedad a precio habitual (±5 % del esperado) en los 30 días anteriores.
+
+    Orden de preferencia: primero las del mismo cliente (lo más comparable), después las de otros clientes; dentro de
+    cada grupo, las más recientes.
+    """
     desde = alerta.fecha - pd.Timedelta(days=config.DIAS_REFERENCIA)
     h = hist[(hist.company_code == alerta.sociedad) & (hist.material_number.str.lstrip("0") == alerta.material)
              & (hist.sales_unit == alerta.unidad) & (hist.billing_date < alerta.fecha)
              & (hist.billing_date >= desde)
              & ((hist.precio_kg / alerta.esperado - 1).abs() <= config.TOLERANCIA_REFERENCIA)].copy()
-    h["otro_cliente"] = ~h.customer_code.isin(alerta.clientes)
-    h = h.sort_values(["otro_cliente", "billing_date"], ascending=[False, False])
-    return h.drop_duplicates("billing_document").head(30)
+    h["mismo_cliente"] = h.customer_code.isin(alerta.clientes)
+    h = h.sort_values(["mismo_cliente", "billing_date"], ascending=[False, False])
+    return h.drop_duplicates("billing_document").head(40)
 
 
-def elegir_referencia(alerta, candidatas, cfdi_ref):
-    """(CFDI, fila del histórico) de la primera candidata válida como "factura a precio normal".
+def elegir_referencia(alerta, candidatas, cfdi_ref, hist=None):
+    """(CFDI, fila del histórico, líneas a mostrar) de la primera candidata válida como factura a precio habitual.
 
-    Válida = su CFDI está cargado, el producto aparece en su propia línea y no es una venta a otra empresa del grupo.
+    Válida = su CFDI está cargado y no es una venta a otra empresa del grupo. Si el CFDI desglosa el producto se
+    muestran sus líneas; si es una factura global de mostrador, se muestra la línea del producto tomada de SAP.
     """
     for r in candidatas.itertuples():
         cf = cfdi_de_factura(cfdi_ref, alerta.sociedad, r.billing_document)
-        if (cf is not None and (cf.NoIdentificacion.astype(str).str.lstrip("0") == alerta.material).any()
-                and cf.ReceptorRfc.iloc[0] not in config.RFC_GRUPO):
-            return cf, r
-    return None, None
+        if cf is None or cf.ReceptorRfc.iloc[0] in config.RFC_GRUPO:
+            continue
+        if (cf.NoIdentificacion.astype(str).str.lstrip("0") == alerta.material).any():
+            return cf, r, cf
+        if es_global(cf) and hist is not None:
+            filas = hist[(hist.billing_document == r.billing_document)
+                         & (hist.material_number.str.lstrip("0") == alerta.material)].sort_values("item_number")
+            if len(filas):
+                return cf, r, _conceptos_sap(alerta, filas.item_number, filas.kg, filas.precio_kg, filas.importe)
+    return None, None, None
+
+
+def _conceptos_sap(alerta, posiciones, kilos, precios, importes, clave="-"):
+    """Líneas de SAP con las columnas de un concepto de CFDI (para dibujarlas en la réplica de la factura)."""
+    return pd.DataFrame({
+        "concepto_idx": range(len(kilos)), "ClaveProdServ": clave, "NoIdentificacion": alerta.material,
+        "Descripcion": [f"{alerta.nombre_material.upper()} (pos. {int(x)})" for x in posiciones],
+        "Cantidad": list(kilos), "ClaveUnidad": "KGM", "ValorUnitario": list(precios),
+        "Importe": list(importes), "IVA_Traslado_Tasa": float("nan"), "Descuento_Concepto": 0.0})
 
 
 def lineas_sap(alerta, lineas, factura, cf_ref):
-    """Líneas del producto en la factura SAP con las columnas de un concepto de CFDI (para facturas globales)."""
+    """Líneas del producto en la factura SAP de la alerta (para facturas globales)."""
     l = lineas[(lineas.billing_document == factura) & (lineas.alerta_id == alerta.alerta_id)].sort_values("item_number")
     clave = "-"
     if cf_ref is not None:
         m = cf_ref[cf_ref.NoIdentificacion.astype(str).str.lstrip("0") == alerta.material]
         clave = m.ClaveProdServ.iloc[0] if len(m) else "-"
-    return pd.DataFrame({
-        "concepto_idx": range(len(l)), "ClaveProdServ": clave, "NoIdentificacion": alerta.material,
-        "Descripcion": [f"{alerta.nombre_material.upper()} (pos. {int(x)})" for x in l.item_number],
-        "Cantidad": l.real_weight.values, "ClaveUnidad": "KGM", "ValorUnitario": l.price_per_unit_mxn.values,
-        "Importe": l.amount_mxn.values, "IVA_Traslado_Tasa": float("nan"), "Descuento_Concepto": 0.0})
+    return _conceptos_sap(alerta, l.item_number, l.real_weight, l.price_per_unit_mxn, l.amount_mxn, clave)
 
 
 def nota_factura(alerta, factura, lineas_fact):
-    """Cuántos productos de la factura están por debajo del precio normal (más de un 5 % bajo su mediana)."""
+    """Cuántos productos de la factura están por debajo del precio habitual (más de un 5 % bajo su mediana)."""
     lin = lineas_fact[lineas_fact.billing_document == factura]
     if lin.empty or alerta.dif >= 0:
         return ""
     debajo = int((lin.price_per_unit_mxn < lin.median_30d * .95).sum())
     if debajo == len(lin):
-        return "Todos los productos de esta factura están por debajo del precio normal."
+        return "Todos los productos de esta factura están por debajo del precio habitual."
     if debajo > 1:
-        return f"{debajo} de los {len(lin)} productos de esta factura están por debajo del precio normal."
+        return f"{debajo} de los {len(lin)} productos de esta factura están por debajo del precio habitual."
     return ""

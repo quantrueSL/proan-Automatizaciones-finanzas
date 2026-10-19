@@ -26,26 +26,27 @@ TABLA_ENVIADAS = "proan-quantrue.D60_REPORTING.evidencia_precios_enviadas"
 # --- Reglas del envío ---------------------------------------------------------------------------------------------
 PLAZO_DIAS = 10          # días que una alerta espera su factura; después se envía sin ella
 TOP_POR_DIA = 10         # alertas por día de venta que llevan evidencia (las de mayor impacto)
-MAX_ALERTAS_CORREO = 20  # tope de alertas por correo; las que no entren salen al día siguiente
+MAX_ALERTAS_CORREO = 20  # tope de alertas por correo (por sociedad, dentro del correo); las que no entren salen al día siguiente
 MESES_HISTORICO = 6      # meses de histórico en la gráfica
-DIAS_REFERENCIA = 30     # antigüedad máxima de la factura "a precio normal"
+DIAS_REFERENCIA = 30     # antigüedad máxima de la factura "a precio habitual"
 TOLERANCIA_REFERENCIA = .05   # la factura de referencia debe estar a ±5 % del precio esperado
 CLIENTES_EPISODIO = 5    # mismo material y precio en 5 clientes o más -> una sola alerta ("episodio masivo")
 
 # Sociedades con su RFC emisor (para cruzar la factura SAP con el CFDI)
 RFC_SOCIEDAD = {"AME": "AME940210Q80", "CCP": "CPR170310DSA", "DBC": "DBC040909524", "PAL": "PAL1212136K0",
                 "PAN": "PAN921013AK7", "PAT": "PAT9110289PA", "SCO1": "SCO14061972A"}
-RFC_GRUPO = set(RFC_SOCIEDAD.values())   # ventas a estas empresas no sirven como "precio normal"
+RFC_GRUPO = set(RFC_SOCIEDAD.values())   # ventas a estas empresas no sirven como "precio habitual"
 RFC_PUBLICO = "XAXX010101000"
 
 # --- Fecha de ejecución -------------------------------------------------------------------------------------------
 # En producción es "hoy" en México. Para probar como si fuera otro día: FECHA_EJECUCION=2026-09-08. En ese caso solo
 # se tienen en cuenta las facturas que ya habían llegado a esa hora (CORTE_HORA), para que la prueba sea realista.
-CORTE_HORA = 15  # hora de México a la que se ejecuta el job
+ZONA_ENVIO = ZoneInfo("Europe/Madrid")
+CORTE_HORA = 17  # hora de España a la que se ejecuta el job (deploy.sh)
 _fecha_env = os.environ.get("FECHA_EJECUCION", "").strip()
 HOY = (datetime.date.fromisoformat(_fecha_env) if _fecha_env
        else datetime.datetime.now(ZONA).date())
-CORTE_CFDI = (datetime.datetime.combine(HOY, datetime.time(CORTE_HORA, 30), ZONA) if _fecha_env else None)
+CORTE_CFDI = (datetime.datetime.combine(HOY, datetime.time(CORTE_HORA, 0), ZONA_ENVIO) if _fecha_env else None)
 
 # --- Correo -------------------------------------------------------------------------------------------------------
 FIRESTORE_DATABASE_ID = os.environ.get("FIRESTORE_DATABASE_ID", "proan-lista-mails").strip()
@@ -67,6 +68,26 @@ ACCENT, CRIT, WARN = "#1d5d7a", "#c23434", "#9a6400"
 C_CLIENTE, C_OTROS, C_ALERTA, C_ZONA = "#2a78d6", "#9aa39f", "#d03b3b", "#fbe3e3"
 # Réplica de la factura impresa
 AZUL_FACTURA, BARRA_FACTURA, ROJO_FACTURA, BORDE_FACTURA = "#1f2f8f", "#1b2f6b", "#e10600", "#1f2a6b"
+# Color de la factura según la sociedad que la emite (sustituye al azul marino en barras, bordes y nombre del emisor).
+# El rojo de la barra "FACTURA" y de los recuadros del producto no cambia. Sociedades sin color: azul marino.
+COLOR_SOCIEDAD = {
+    # Rojo
+    "SCO1": "#c8102e", "MAL": "#c8102e", "MPE": "#c8102e",   # rojo puro
+    "PAN": "#1b2f6b",                                         # azul marino (como la factura original)
+    # Marrón / tierra
+    "PAL": "#6d4c35", "FAG": "#8b6b4a",
+    # Dorado
+    "PRA": "#a87b0a",
+    # Azul
+    "CCP": "#2f6db5", "SAP": "#2f6db5",                       # azul medio
+    "AME": "#1b2f6b",                                         # azul marino
+    # Verde / verde azulado
+    "DBC": "#1c7a1c",                                         # verde de su factura impresa
+    "HEGP": "#2a8c82", "GSI": "#1f5f6b",                      # verde azulado y petróleo
+    "BAG": "#6b7a2a",                                         # verde oliva
+    # Gris
+    "ROMM": "#6b6f72",
+}
 
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre"]

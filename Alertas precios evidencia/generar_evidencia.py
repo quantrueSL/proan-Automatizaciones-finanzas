@@ -5,8 +5,8 @@ Pasos:
   2. Las agrupa en alertas y se queda con las 10 de mayor impacto de cada día.
   3. Quita las que ya se enviaron con su evidencia (tabla de control).
   4. Busca su factura CFDI: si está, la alerta está lista; si pasaron PLAZO_DIAS sin factura, sale sin ella.
-  5. Para las que salen hoy, trae el histórico de precios y una factura de referencia a precio normal.
-  6. Genera el PDF y el manifiesto que usará enviar_evidencia.py.
+  5. Para las que salen hoy, trae el histórico de precios y una factura de referencia a precio habitual.
+  6. Genera un PDF por sociedad y el manifiesto que usará enviar_evidencia.py (un solo correo con todos).
 
 Uso local:  python generar_evidencia.py
             FECHA_EJECUCION=2026-09-08 python generar_evidencia.py   (como si fuera ese día)
@@ -32,12 +32,12 @@ def main():
     t0 = time.time()
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     print(f"[generar] Fecha de ejecución: {config.HOY}"
-          + (f" (prueba; facturas cargadas hasta {config.CORTE_CFDI:%Y-%m-%d %H:%M} México)" if config.CORTE_CFDI else ""))
+          + (f" (prueba; facturas cargadas hasta {config.CORTE_CFDI:%Y-%m-%d %H:%M} España)" if config.CORTE_CFDI else ""))
 
     # 1-2. Alertas de los últimos días, agrupadas
     fechas = [datos.hace(k) for k in range(1, config.PLAZO_DIAS + 4)]
     lineas = datos.alertas_de_los_dias(fechas)
-    manifiesto = {"fecha": config.HOY.isoformat(), "pdf": None, "alertas": [], "esperando": 0}
+    manifiesto = {"fecha": config.HOY.isoformat(), "esperando": 0, "envios": []}
     if lineas.empty:
         print("[generar] No hay tablas de alertas en el periodo.")
         return _guardar(manifiesto)
@@ -54,7 +54,7 @@ def main():
     pend = al.clasificar(grupos, lineas, cfdi, enviadas)
     seleccion = al.seleccionar(pend)
     n_esperando = int((pend.estado == "esperando").sum()) if len(pend) else 0
-    manifiesto["esperando"] = n_esperando
+    manifiesto["esperando"] = n_esperando  # de todas las sociedades, aunque hoy alguna no tenga PDF
     print(f"[generar] Ya enviadas: {len(enviadas)} · pendientes: {len(pend)} · salen hoy: {len(seleccion)} · "
           f"esperando factura: {n_esperando}")
     if seleccion.empty:
@@ -74,22 +74,29 @@ def main():
     ctx = SimpleNamespace(lineas=lineas, hist=hist, cfdi=cfdi, cfdi_ref=cfdi_ref, candidatas=candidatas,
                           lineas_fact=lineas_fact)
 
-    # 6. PDF y manifiesto
-    ruta = os.path.join(config.OUTPUT_DIR, f"evidencia_alertas_precios_{config.HOY.isoformat()}.pdf")
-    pdf.construir(seleccion, ctx, ruta, n_esperando)
-    manifiesto["pdf"] = ruta
-    for r in seleccion.itertuples():
-        cf_al, fact = principales[r.alerta_id]
-        cf_ref, r_ref = al.elegir_referencia(r, candidatas[r.alerta_id], cfdi_ref)
-        manifiesto["alertas"].append({
-            "alerta_id": r.alerta_id, "fecha_alerta": r.fecha.date().isoformat(), "sociedad": r.sociedad,
-            "material": r.material, "nombre_material": r.nombre_material, "cliente": r.cliente,
-            "facturas": list(r.facturas), "factura_mostrada": fact,
-            "uuid": cf_al.UUID.iloc[0] if cf_al is not None else None,
-            "factura_referencia": r_ref.billing_document if r_ref is not None else None,
-            "con_factura": bool(r.con_factura), "precio": float(r.precio), "esperado": float(r.esperado),
-            "impacto_mxn": float(r.dif)})
-    print(f"[generar] PDF: {ruta} ({len(seleccion)} alertas) en {time.time() - t0:.0f} s")
+    # 6. Un PDF por sociedad y el manifiesto
+    for sociedad, sel in seleccion.groupby("sociedad", sort=True):
+        sel = sel.reset_index(drop=True)
+        nombre = sel.nombre_sociedad.iloc[0]
+        esperando = int(((pend.estado == "esperando") & (pend.sociedad == sociedad)).sum())
+        ruta = os.path.join(config.OUTPUT_DIR, f"evidencia_alertas_precios_{config.HOY.isoformat()}_{sociedad}.pdf")
+        pdf.construir(sel, ctx, ruta, esperando, f"{sociedad} · {nombre}")
+        envio = {"sociedad": sociedad, "nombre_sociedad": nombre, "pdf": ruta, "esperando": esperando,
+                 "alertas": []}
+        for r in sel.itertuples():
+            cf_al, fact = principales[r.alerta_id]
+            cf_ref, r_ref, _ = al.elegir_referencia(r, candidatas[r.alerta_id], cfdi_ref, hist)
+            envio["alertas"].append({
+                "alerta_id": r.alerta_id, "fecha_alerta": r.fecha.date().isoformat(), "sociedad": r.sociedad,
+                "material": r.material, "nombre_material": r.nombre_material, "cliente": r.cliente,
+                "facturas": list(r.facturas), "factura_mostrada": fact,
+                "uuid": cf_al.UUID.iloc[0] if cf_al is not None else None,
+                "factura_referencia": r_ref.billing_document if r_ref is not None else None,
+                "con_factura": bool(r.con_factura), "precio": float(r.precio), "esperado": float(r.esperado),
+                "impacto_mxn": float(r.dif)})
+        manifiesto["envios"].append(envio)
+        print(f"[generar] PDF {sociedad}: {ruta} ({len(sel)} alertas)")
+    print(f"[generar] {len(manifiesto['envios'])} PDF por sociedad en {time.time() - t0:.0f} s")
     return _guardar(manifiesto)
 
 

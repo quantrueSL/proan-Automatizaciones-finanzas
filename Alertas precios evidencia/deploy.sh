@@ -10,11 +10,12 @@ JOB_NAME="alertas-precios-evidencia"
 SCHEDULER_JOB_NAME="alertas-precios-evidencia-scheduler"
 REPOSITORY_IMAGE="gcr.io/${PROJECT_ID}/${JOB_NAME}"
 
-# Lunes a sábado a las 15:30 de México. Las facturas de un día llegan sobre todo entre las 7:00 y las 14:00 del día
-# siguiente, así que a esta hora ya está la mayoría (si la carga de CFDI a BigQuery se hace antes; ver README).
-# Las ventas del sábado salen el lunes: el envío recoge siempre todo lo pendiente.
-SCHEDULER_CRON="30 15 * * 1-6"
-SCHEDULER_TIMEZONE="America/Mexico_City"
+# Lunes a sábado a las 17:00 de España (9:00-10:00 en México). Las alertas del día anterior (price_alerts_AAAAMMDD)
+# y la carga de CFDI (cfdi_completo) suelen estar hacia las 14:40-15:40 UTC, así que en horario de verano europeo
+# (17:00 = 15:00 UTC) algún día las facturas de la víspera aún no habrán llegado: salen al día siguiente, porque la
+# recapitulación recoge siempre todo lo pendiente. Las ventas del sábado salen el lunes.
+SCHEDULER_CRON="0 17 * * 1-6"
+SCHEDULER_TIMEZONE="Europe/Madrid"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

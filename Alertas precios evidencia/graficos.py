@@ -64,7 +64,7 @@ def grafica(g, h, ancho_mm=180, alto_mm=57):
         ax.scatter([g.fecha], [g.precio], s=75, color=config.C_ALERTA, zorder=7, edgecolor="white", linewidth=1.2)
 
     fs = 7.4
-    ax.text(1.01, (g.esperado - y0) / rango, f"Esperado\n${g.esperado:,.2f}", transform=ax.transAxes,
+    ax.text(1.01, (g.esperado - y0) / rango, f"Precio\noficial\n${g.esperado:,.2f}", transform=ax.transAxes,
             va="center", ha="left", fontsize=fs, color=config.INK, fontweight="bold", clip_on=False)
     quien = "Este cliente" if g.n_clientes == 1 else ("Estas tiendas" if g.publico else "Estos clientes")
     ley = [plt.Line2D([], [], ls="", marker="o", ms=5, mfc=config.C_CLIENTE, mec="white", label=quien),
@@ -74,11 +74,11 @@ def grafica(g, h, ancho_mm=180, alto_mm=57):
               handletextpad=.3, columnspacing=1.4, borderaxespad=.2)
     if g.dif < 0:
         ax.text(x0 + pd.Timedelta(days=3), umbral - rango * .03,
-                f"Zona grave: menos de la mitad del esperado (< ${umbral:,.2f})",
+                f"Zona grave: menos de la mitad del precio oficial (< ${umbral:,.2f})",
                 va="top", ha="left", fontsize=6.6, color=config.CRIT)
     else:
         ax.text(x0 + pd.Timedelta(days=3), umbral + rango * .03,
-                f"Zona grave: más del doble del esperado (> ${umbral:,.2f})",
+                f"Zona grave: más del doble del precio oficial (> ${umbral:,.2f})",
                 va="bottom", ha="left", fontsize=6.6, color=config.CRIT)
     ax.annotate(f"Esta venta ${g.precio:,.2f}", (g.fecha, g.precio), xytext=(-9, 0), textcoords="offset points",
                 ha="right", va="center", fontsize=fs, color=config.C_ALERTA, fontweight="bold", zorder=8,
