@@ -34,6 +34,12 @@ ST = {
 }
 
 
+def es_material(no_identificacion, material):
+    """Conceptos del CFDI que son el material. NoIdentificacion puede venir como "15654", "000000000000015654" o con la
+    posición delante ("000090-15654", facturas de exportación)."""
+    return no_identificacion.astype(str).str.split("-").str[-1].str.lstrip("0") == material
+
+
 # --- Bloques comunes --------------------------------------------------------------------------------------------
 def tabla(datos, anchos, der=(), extra=()):
     t = Table(datos, colWidths=anchos, repeatRows=1)
@@ -135,7 +141,7 @@ def _datos_venta(g, cf_al, fact_al, cf_ref, r_ref, info, ancho):
     def precio_en(cf):
         if cf is None:
             return "-"
-        l = cf[cf.NoIdentificacion.astype(str).str.lstrip("0") == g.material]
+        l = cf[es_material(cf.NoIdentificacion, g.material)]
         if not len(l):
             return "-"
         return f"${l.ValorUnitario.iloc[0]:,.2f} por {config.UNIDAD.get(str(l.ClaveUnidad.iloc[0]), l.ClaveUnidad.iloc[0])}"
@@ -183,7 +189,7 @@ class FacturaImpresa(Flowable):
         self.cab, self.cliente = cab, str(cliente_sap)
         self.color = config.COLOR_SOCIEDAD.get(sociedad, config.BARRA_FACTURA)  # color de la sociedad emisora
         lin = lineas.copy()
-        lin["es_alerta"] = lin.NoIdentificacion.astype(str).str.lstrip("0") == material
+        lin["es_alerta"] = es_material(lin.NoIdentificacion, material)
         self.ocultas = 0
         if len(lin) > max_lineas:  # la línea del producto y sus vecinas
             pos = int(lin.reset_index(drop=True).index[lin.es_alerta.values][0]) if lin.es_alerta.any() else 0
@@ -395,7 +401,7 @@ def paginas_alerta(g, ctx, W):
         quien = "mismo cliente" if r_ref.mismo_cliente else limpia(cf_ref.ReceptorNombre.iloc[0])
         base = [Paragraph("Factura de referencia: precio habitual", ST["tit_factura"])]
         if lin_ref is cf_ref:  # el CFDI desglosa el producto
-            l = cf_ref[cf_ref.NoIdentificacion.astype(str).str.lstrip("0") == g.material].iloc[0]
+            l = cf_ref[es_material(cf_ref.NoIdentificacion, g.material)].iloc[0]
             unidad = config.UNIDAD.get(str(l.ClaveUnidad), l.ClaveUnidad)
             base.append(Paragraph(f"{fecha_corta(r_ref.billing_date)} · {quien} · ${l.ValorUnitario:,.2f} por {unidad} "
                                   f"(${r_ref.precio_kg:,.2f}/kg) · factura SAP {r_ref.billing_document}",
